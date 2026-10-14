@@ -220,7 +220,7 @@ def link_artist(artist_id: int, tidal_artist: dict, monitor: str = "none", monit
     if monitor_new is None:
         monitor_new = db.get_setting("monitor_new_default") == "1"
     db.run(
-        "UPDATE artists SET tidal_id=?, picture=?, monitored=?, monitor_new=?, match_state='linked' WHERE id=?",
+        "UPDATE artists SET tidal_id=?, picture=?, monitored=?, monitor_new=?, match_state='linked', added_by_user=1 WHERE id=?",
         (tidal_artist["id"], tidal_artist.get("picture"), 1 if monitor != "none" else 0,
          1 if monitor_new else 0, artist_id),
     )
@@ -422,6 +422,8 @@ def scan(artist_folder: str | None = None):
         db.run(
             "UPDATE albums SET track_files=(SELECT COUNT(*) FROM tracks WHERE tracks.album_id=albums.id)"
         )
+        if artist_folder is None:
+            prune_orphans()
         scan_state["message"] = "done"
         scan_state["finished_at"] = time.time()
     except Exception as e:
@@ -598,3 +600,27 @@ def stale_tracks(days: int) -> list[dict]:
         "ORDER BY COALESCE(t.last_played,0), ar.name COLLATE NOCASE, al.title, t.track_no",
         (since, cutoff),
     )
+
+
+# --------------------------------------------------------------- orphans
+
+ORPHAN_SQL = """
+SELECT ar.id FROM artists ar
+WHERE ar.monitored=0 AND ar.added_by_user=0
+  AND NOT EXISTS (SELECT 1 FROM albums al JOIN tracks t ON t.album_id=al.id WHERE al.artist_id=ar.id)
+  AND NOT EXISTS (SELECT 1 FROM albums al WHERE al.artist_id=ar.id AND al.monitored=1)
+  AND NOT EXISTS (SELECT 1 FROM albums al JOIN queue q ON q.album_id=al.id
+                  WHERE al.artist_id=ar.id AND q.status IN ('queued','downloading'))
+"""
+
+
+def prune_orphans() -> int:
+    """Remove artists that only existed for a song download that never
+    happened (cancelled, failed). Nothing on disk is touched."""
+    ids = [r["id"] for r in db.q(ORPHAN_SQL)]
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        db.run(f"DELETE FROM artists WHERE id IN ({','.join('?' * len(chunk))})", chunk)  # albums cascade
+    if ids:
+        log.info("removed %d artists without songs", len(ids))
+    return len(ids)

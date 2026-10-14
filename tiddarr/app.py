@@ -229,7 +229,8 @@ SELECT ar.*,
   (SELECT COUNT(*) FROM tracks t JOIN albums al ON al.id=t.album_id WHERE al.artist_id=ar.id) AS tracks,
   (SELECT COALESCE(SUM(t.size),0) FROM tracks t JOIN albums al ON al.id=t.album_id WHERE al.artist_id=ar.id) AS size,
   (SELECT al.cover FROM albums al WHERE al.artist_id=ar.id AND al.cover IS NOT NULL ORDER BY al.track_files>0 DESC, al.release_date DESC LIMIT 1) AS any_cover,
-  (SELECT al.id FROM albums al WHERE al.artist_id=ar.id AND al.track_files>0 AND al.folder IS NOT NULL ORDER BY al.release_date DESC LIMIT 1) AS local_album
+  (SELECT al.id FROM albums al WHERE al.artist_id=ar.id AND al.track_files>0 AND al.folder IS NOT NULL ORDER BY al.release_date DESC LIMIT 1) AS local_album,
+  (SELECT COUNT(*) FROM albums al JOIN queue q ON q.album_id=al.id WHERE al.artist_id=ar.id AND q.status IN ('queued','downloading')) AS active_jobs
 FROM artists ar
 """
 
@@ -246,7 +247,8 @@ def _artist_row(a: dict) -> dict:
 @app.get("/api/artists")
 def artists():
     rows = db.q(ARTIST_LIST_SQL + " ORDER BY ar.name COLLATE NOCASE")
-    return jsonify([_artist_row(a) for a in rows if a["tracks"] or a["tidal_id"]])
+    # helpers created for single-song downloads only show up once songs exist
+    return jsonify([_artist_row(a) for a in rows if a["tracks"] or a["monitored"] or a["added_by_user"] or a["active_jobs"]])
 
 
 @app.post("/api/artists")
@@ -255,6 +257,7 @@ def add_artist():
     b = body()
     a = tidal.artist(int(b["tidal_id"]))
     artist_id = library.ensure_artist(a)
+    db.run("UPDATE artists SET added_by_user=1 WHERE id=?", (artist_id,))
     monitor = b.get("monitor", "all")
     monitor_new = bool(b.get("monitor_new", True))
     search_now = bool(b.get("search", True))

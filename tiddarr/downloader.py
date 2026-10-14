@@ -50,6 +50,7 @@ def clear(unmonitor: bool = True) -> int:
         chunk = track_ids[i:i + 500]
         db.run(f"UPDATE playlist_tracks SET state='matched' WHERE state='queued' AND tidal_id IN ({','.join('?' * len(chunk))})", chunk)
     db.run("UPDATE queue SET status='cancelled', message='queue cleared', finished_at=CURRENT_TIMESTAMP WHERE status='queued'")
+    library.prune_orphans()
     if _current["job"] and _current["proc"]:
         _current["cancel"] = True
         _kill(_current["proc"])

@@ -104,6 +104,8 @@ MIGRATIONS = [
     ("tracks", "last_played", "REAL", None),
     ("tracks", "keep", "INTEGER NOT NULL DEFAULT 0", None),
     ("tracks", "first_seen", "REAL", "UPDATE tracks SET first_seen=CAST(strftime('%s','now') AS REAL)"),
+    # artists the user added on purpose (search, link); others are helpers for single-song downloads
+    ("artists", "added_by_user", "INTEGER NOT NULL DEFAULT 0", "UPDATE artists SET added_by_user=1 WHERE last_refresh IS NOT NULL"),
 ]
 
 
