@@ -71,6 +71,9 @@ const STRINGS = {
     chart_help: "Charts come from your linked accounts (Tidal, Deezer). Album and artist charts of a country are derived from its song chart.", songs_in_chart: "songs in the chart", best: "best",
     sug_empty: "Not enough data yet. Link your artists with Tidal (Settings → Tasks → Artwork & metadata).",
     pl_url: "Link", pl_csv: "CSV / list",
+    add_to_playlist: "Add to playlist", new_playlist: "New playlist", playlist_name: "Playlist name", create: "Create",
+    added_to: "Added to", selected: "selected", select_all: "Select all", move_up: "Move up", move_down: "Move down",
+    remove_from_playlist: "Remove", rename: "Rename", own_playlist: "Your playlist – changes appear in Music Assistant and Jellyfin automatically.",
     sp_exportify: "No developer account needed: sign in at Exportify with your Spotify account, export your playlists and Liked Songs as CSV (\"Export All\" gives a ZIP – unpack it) and import the files here.",
     sp_link_hint: "Spotify links can't be read directly. Export the playlist with Exportify and import the CSV:", files_imported: "playlists imported", my_playlists: "My playlists", saved_playlists: "Saved & monitored", search_playlists: "Search public playlists", paste_link: "Playlist link from Tidal, Deezer, YouTube Music or Apple Music",
     open: "Open", download_all: "Download all", monitor_playlist: "Download & keep in sync", synced: "Synced", tracks_owned: "in library",
@@ -151,6 +154,9 @@ const STRINGS = {
     chart_help: "Charts kommen von deinen verknüpften Konten (Tidal, Deezer). Album- und Interpreten-Charts eines Landes werden aus den Song-Charts abgeleitet.", songs_in_chart: "Songs in den Charts", best: "beste",
     sug_empty: "Noch zu wenig Daten. Verknüpfe deine Interpreten mit Tidal (Einstellungen → Aufgaben → Artwork & Metadaten).",
     pl_url: "Link", pl_csv: "CSV / Liste",
+    add_to_playlist: "Zur Playlist hinzufügen", new_playlist: "Neue Playlist", playlist_name: "Name der Playlist", create: "Anlegen",
+    added_to: "Hinzugefügt zu", selected: "ausgewählt", select_all: "Alle auswählen", move_up: "Nach oben", move_down: "Nach unten",
+    remove_from_playlist: "Entfernen", rename: "Umbenennen", own_playlist: "Deine Playlist – Änderungen erscheinen automatisch in Music Assistant und Jellyfin.",
     sp_exportify: "Kein Developer-Account nötig: Bei Exportify mit deinem Spotify-Konto anmelden, Playlists und Lieblingssongs als CSV exportieren (\"Export All\" liefert eine ZIP-Datei – entpacken) und die Dateien hier importieren.",
     sp_link_hint: "Spotify-Links lassen sich nicht direkt lesen. Exportiere die Playlist mit Exportify und importiere die CSV:", files_imported: "Playlists importiert", my_playlists: "Meine Playlists", saved_playlists: "Gespeichert & überwacht", search_playlists: "Öffentliche Playlists suchen", paste_link: "Playlist-Link von Tidal, Deezer, YouTube Music oder Apple Music",
     open: "Öffnen", download_all: "Alle herunterladen", monitor_playlist: "Laden & synchron halten", synced: "Synchronisiert", tracks_owned: "in Bibliothek",
@@ -505,6 +511,7 @@ async function viewAlbum(id, alive) {
           <button class="btn" data-dl="${a.id}">${esc(t("download"))}</button>` : ""}
           ${a.track_files ? `<button class="btn ${a.tidal_id ? "" : "primary"}" data-identify="${a.id}">${esc(t("identify"))}</button>` : ""}
           ${a.track_files && a.tidal_id ? `<button class="btn" id="reloadCover">${esc(t("reload_cover"))}</button>` : ""}
+          ${a.track_files ? `<button class="btn" id="albumToPl">${esc(t("add_to_playlist"))}</button>` : ""}
           <button class="btn danger" id="deleteAlbum">${esc(t("delete_album"))}</button></div>
       </div></div>
       ${tracks.length ? `<h2>${esc(t("files"))}</h2><table class="list"><tr><th class="num">#</th><th>${esc(t("title"))}</th><th class="hide-sm">${esc(t("artist"))}</th><th class="hide-sm">${esc(t("format"))}</th><th>${esc(t("duration"))}</th><th></th></tr>
@@ -517,6 +524,7 @@ async function viewAlbum(id, alive) {
     main.querySelectorAll("[data-play]").forEach((b) => (b.onclick = () => play(tracks.find((x) => x.id === +b.dataset.play), `${a.artist_name} – ${a.full_title}`)));
     main.querySelectorAll("[data-dltrack]").forEach((b) => (b.onclick = async () => { b.disabled = true; await act(() => post("/tracks/download", { tidal_id: +b.dataset.dltrack }), t("added_queue")); refreshStatus(); }));
     main.querySelectorAll("[data-log]").forEach((b) => (b.onclick = () => showLog(+b.dataset.log)));
+    $("#albumToPl")?.addEventListener("click", () => addToPlaylistDialog({ album_id: +id }, a.full_title));
     $("#deleteAlbum").addEventListener("click", () => deleteDialog("album", +id, a.full_title, `${a.track_files} ${t("songs")}`, () => (location.hash = `#/artist/${a.artist_id}`)));
     $("#reloadCover")?.addEventListener("click", async (e) => { e.target.disabled = true; await act(() => post(`/albums/${id}/artwork`, { force: true }), t("saved")); load(); });
   };
@@ -569,7 +577,9 @@ async function identifyDialog(albumId, done) {
 
 async function viewTracks(_, alive) {
   let offset = 0, items = [], total = 0;
-  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_tracks"))}</h1><span class="muted" id="count"></span></div>
+  const sel = new Set();
+  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_tracks"))}</h1><span class="muted" id="count"></span><span class="spacer"></span>
+    <span class="muted small" id="selInfo"></span><button class="btn" id="selAdd" disabled>${esc(t("add_to_playlist"))}</button></div>
     <table class="list" id="tbl"></table><div style="text-align:center;margin-top:14px"><button class="btn" id="more" hidden>${esc(t("load_more"))}</button></div>`;
   const load = async (reset) => {
     if (reset) { offset = 0; items = []; }
@@ -578,8 +588,8 @@ async function viewTracks(_, alive) {
     items = items.concat(r.items); total = r.total; offset += r.items.length;
     $("#count").textContent = `${total} ${t("songs")}`;
     $("#more").hidden = offset >= total;
-    $("#tbl").innerHTML = `<tr><th></th><th>${esc(t("title"))}</th><th>${esc(t("artist"))}</th><th class="hide-sm">${esc(t("album"))}</th><th class="hide-sm">${esc(t("format"))}</th><th>${esc(t("duration"))}</th></tr>` +
-      items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td style="width:46px"><button class="icon-btn" data-play="${x.id}">${ICON_PLAY}</button></td><td>${esc(x.title)}</td>
+    $("#tbl").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="selAll" title="${esc(t("select_all"))}"></th><th></th><th>${esc(t("title"))}</th><th>${esc(t("artist"))}</th><th class="hide-sm">${esc(t("album"))}</th><th class="hide-sm">${esc(t("format"))}</th><th>${esc(t("duration"))}</th></tr>` +
+      items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td><input type="checkbox" data-sel="${x.id}" ${sel.has(x.id) ? "checked" : ""}></td><td style="width:46px"><button class="icon-btn" data-play="${x.id}">${ICON_PLAY}</button></td><td>${esc(x.title)}</td>
         <td><a href="#/artist/${x.artist_id}">${esc(x.artist || x.artist_name)}</a></td><td class="hide-sm"><a class="muted" href="#/album/${x.album_id}">${esc(x.album)}</a></td>
         <td class="hide-sm muted nowrap">${esc((x.format || "").toUpperCase())}${x.bits ? ` ${x.bits}/${(x.sample_rate / 1000).toFixed(1)}` : ""}</td><td class="muted">${dur(x.duration)}</td></tr>`).join("");
   };
@@ -587,6 +597,13 @@ async function viewTracks(_, alive) {
     const b = e.target.closest("[data-play]");
     if (b) { const x = items.find((i) => i.id === +b.dataset.play); play(x, `${x.artist || x.artist_name} – ${x.album}`); }
   });
+  const updSel = () => { $("#selInfo").textContent = sel.size ? `${sel.size} ${t("selected")}` : ""; $("#selAdd").disabled = !sel.size; };
+  $("#tbl").addEventListener("change", (e) => {
+    if (e.target.id === "selAll") { items.forEach((x) => (e.target.checked ? sel.add(x.id) : sel.delete(x.id))); $("#tbl").querySelectorAll("[data-sel]").forEach((c) => (c.checked = e.target.checked)); }
+    else if (e.target.dataset.sel) { e.target.checked ? sel.add(+e.target.dataset.sel) : sel.delete(+e.target.dataset.sel); }
+    updSel();
+  });
+  $("#selAdd").onclick = () => addToPlaylistDialog({ track_ids: [...sel] }, `${sel.size} ${t("songs")}`);
   $("#more").onclick = () => load(false);
   let timer;
   const onSearch = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 250); };
@@ -688,6 +705,29 @@ function deleteDialog(kind, id, label, info, after) {
   };
 }
 
+// what: { track_ids: [...] } | { album_id } | { artist_id }
+async function addToPlaylistDialog(what, label) {
+  const list = await api("/playlists/local");
+  const m = modal(`<h2>${esc(t("add_to_playlist"))}${label ? ": " + esc(label) : ""}</h2>
+    ${list.length ? `<div style="max-height:40vh;overflow:auto;margin-bottom:12px">${list.map((p) => `<button class="option" style="width:100%;text-align:left" data-pl="${p.id}"><div><b>${esc(p.name)}</b><small>${p.count} ${esc(t("songs"))}</small></div></button>`).join("")}</div>` : ""}
+    <form class="toolbar" id="newPl" style="margin:0"><input type="text" id="newPlName" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("new_playlist"))}</button></form>
+    <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button></div>`);
+  const add = async (plId, name) => {
+    const r = await act(() => post(`/playlists/${plId}/tracks`, what));
+    toast(`${r.added} ${t("songs")} → ${name}`);
+    closeModal();
+  };
+  m.querySelectorAll("[data-pl]").forEach((b) => (b.onclick = () => add(b.dataset.pl, list.find((p) => p.id === +b.dataset.pl).name)));
+  $("#newPl", m).onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $("#newPlName", m).value.trim();
+    if (!name) return;
+    const r = await act(() => post("/playlists", { name }));
+    await add(r.id, name);
+  };
+  $("#newPlName", m).focus();
+}
+
 // right-click menu: elements carry data-ctx="artist:12" | "album:5" | "track:9"
 const ctxMenu = document.createElement("div");
 ctxMenu.className = "ctx-menu"; ctxMenu.hidden = true;
@@ -708,6 +748,8 @@ document.addEventListener("contextmenu", (e) => {
     items.push([t("identify"), () => identifyDialog(+id, () => route())]);
   }
   if (kind === "track") items.push([t("play"), () => play({ id: +id, title: label }, "")]);
+  const addWhat = { track: { track_ids: [+id] }, album: { album_id: +id }, artist: { artist_id: +id } }[kind];
+  items.push([t("add_to_playlist"), () => addToPlaylistDialog(addWhat, label)]);
   items.push([t("delete_" + kind), () => deleteDialog(kind, +id, label, "", () => route()), "danger"]);
   ctxMenu.innerHTML = items.map(([l, , cls], i) => `<button data-i="${i}" class="${cls || ""}">${esc(l)}</button>`).join("");
   ctxMenu.querySelectorAll("button").forEach((b) => (b.onclick = () => { ctxMenu.hidden = true; items[+b.dataset.i][1](); }));
@@ -719,7 +761,7 @@ document.addEventListener("contextmenu", (e) => {
 
 // --------------------------------------------------------------- playlists
 
-const SERVICE_NAMES = { tidal: "Tidal", spotify: "Spotify", deezer: "Deezer", youtube: "YouTube Music", apple: "Apple Music", file: "Import" };
+const SERVICE_NAMES = { tidal: "Tidal", spotify: "Spotify", deezer: "Deezer", youtube: "YouTube Music", apple: "Apple Music", file: "Import", local: "Tiddarr", music_assistant: "Music Assistant", jellyfin: "Jellyfin" };
 
 function parsePlaylistLink(v) {
   v = v.trim();
@@ -748,7 +790,7 @@ async function viewPlaylists(_, alive) {
   let svc = localStorage.getItem("plService");
   if (!mine.some((x) => x.id === svc)) svc = mine[0] ? mine[0].id : null;
   const mode0 = ["search", "url", "csv"].includes(localStorage.getItem("plMode")) ? localStorage.getItem("plMode") : "search";
-  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span><a class="btn" href="#/settings/accounts">${esc(t("services"))}</a></div>
+  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span><button class="btn primary" id="newPlBtn">${esc(t("new_playlist"))}</button><a class="btn" href="#/settings/accounts">${esc(t("services"))}</a></div>
     <div class="panel">
       <div class="tabs" id="plModes" style="margin-top:-6px">${[["search", "search_playlists"], ["url", "pl_url"], ["csv", "pl_csv"]].map(([m, k]) => `<button data-m="${m}">${esc(t(k))}</button>`).join("")}</div>
       <form class="toolbar" id="plSearch" data-mode="search" style="margin:0"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
@@ -767,6 +809,11 @@ async function viewPlaylists(_, alive) {
       ${mine.length ? `<div class="seg" id="plMine">${mine.map((x) => `<button data-s="${x.id}" class="${x.id === svc ? "on" : ""}">${esc(x.name)}</button>`).join("")}</div>` : ""}</div>
     <div id="plMineList">${svc ? `<span class="spinner"></span>` : `<div class="empty"><a href="#/settings/accounts">${esc(t("services"))}</a></div>`}</div>`;
 
+  $("#newPlBtn").onclick = () => {
+    const m = modal(`<h2>${esc(t("new_playlist"))}</h2><form class="toolbar" id="npf" style="margin:0"><input type="text" id="npn" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("create"))}</button></form>`);
+    $("#npn", m).focus();
+    $("#npf", m).onsubmit = async (e) => { e.preventDefault(); const r = await act(() => post("/playlists", { name: $("#npn", m).value })); closeModal(); location.hash = `#/saved/${r.id}`; };
+  };
   const setMode = (m) => {
     localStorage.setItem("plMode", m);
     $("#plModes").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
@@ -868,11 +915,41 @@ async function viewRemotePlaylist(service, id, alive) {
   bindPlaylistTracks(p.tracks);
 }
 
+function renderLocalPlaylist(p, tracks) {
+  const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
+  main.innerHTML = `<div class="hero"><div class="art"></div><div class="meta"><span class="muted">Tiddarr · Playlist</span>
+    <form class="toolbar" id="renameForm" style="margin:0"><input type="text" id="plName" value="${esc(p.name)}" style="font-size:24px;font-weight:700;flex:1;min-width:200px;background:transparent;border-color:transparent"><button class="btn small" id="renameBtn" hidden>${esc(t("save"))}</button></form>
+    <div class="stats"><span><b>${tracks.length}</b> ${esc(t("songs"))}</span><span>${dur(total)}</span></div>
+    <p class="muted small" style="margin:0">${esc(t("own_playlist"))}</p>
+    <div class="toolbar" style="margin:6px 0 0"><a class="btn" href="#/tracks">${esc(t("add_to_playlist"))} →</a><button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>
+    ${tracks.length ? `<table class="list">${tracks.map((x, i) => `<tr><td class="num">${i + 1}</td>
+      <td style="width:46px">${x.track_id ? `<button class="icon-btn" data-play="${i}">${ICON_PLAY}</button>` : ""}</td>
+      <td>${esc(x.title)}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album || "")}</td><td class="muted hide-sm">${dur(x.duration)}</td>
+      <td class="row-actions"><button class="btn small" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} title="${esc(t("move_up"))}">↑</button><button class="btn small" data-mv="${i}" data-d="1" ${i === tracks.length - 1 ? "disabled" : ""} title="${esc(t("move_down"))}">↓</button>
+        <button class="btn small danger" data-rm="${x.id}">${esc(t("remove_from_playlist"))}</button></td></tr>`).join("")}</table>` : `<div class="empty">${esc(t("no_results"))}</div>`}`;
+  const reload = () => route();
+  $("#plName").addEventListener("input", () => ($("#renameBtn").hidden = false));
+  $("#renameForm").onsubmit = async (e) => { e.preventDefault(); await act(() => put(`/playlists/${p.id}`, { name: $("#plName").value }), t("saved")); reload(); };
+  $("#del").onclick = async () => { await act(() => del(`/playlists/${p.id}`)); location.hash = "#/playlists"; };
+  main.addEventListener("click", async (e) => {
+    const rm = e.target.closest("[data-rm]"), mv = e.target.closest("[data-mv]"), pl = e.target.closest("[data-play]");
+    if (rm) { await act(() => del(`/playlists/${p.id}/tracks/${rm.dataset.rm}`)); reload(); }
+    if (mv) {
+      const i = +mv.dataset.mv, j = i + +mv.dataset.d, ids = tracks.map((x) => x.id);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await act(() => put(`/playlists/${p.id}/order`, { entry_ids: ids })); reload();
+    }
+    if (pl) { const x = tracks[+pl.dataset.play]; play({ id: x.track_id, title: x.title }, `${x.artist} – ${p.name}`); }
+  });
+  return false;
+}
+
 async function viewSavedPlaylist(id, alive) {
   const load = async () => {
     const { playlist: p, tracks, sync } = await api(`/playlists/${id}`);
     if (!alive()) return;
     const owned = tracks.filter((x) => x.owned).length;
+    if (p.service === "local") return renderLocalPlaylist(p, tracks);
     main.innerHTML = `${loginBanner()}<div class="hero"><div class="art" ${bg(p.image)}></div><div class="meta"><span class="muted">${esc(SERVICE_NAMES[p.service])} · Playlist</span><h1>${esc(p.name)}</h1>
       <div class="stats"><span><b>${tracks.length}</b> ${esc(t("songs"))}</span><span><b>${owned}</b> ${esc(t("tracks_owned"))}</span>${p.last_sync ? `<span>${esc(t("synced"))}: ${esc(p.last_sync)}</span>` : ""}
         ${sync && sync.running ? `<span><span class="spinner"></span> ${sync.done}/${sync.total} ${esc(sync.message || "")}</span>` : ""}${sync && !sync.running && sync.message && sync.message.startsWith("error") ? `<span class="badge err">${esc(sync.message)}</span>` : ""}</div>

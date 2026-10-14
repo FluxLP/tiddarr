@@ -706,10 +706,63 @@ def saved_playlist(pl_id):
 @app.put("/api/playlists/<int:pl_id>")
 def update_playlist(pl_id):
     b = body()
+    if b.get("name"):
+        try:
+            playlists.rename(pl_id, b["name"])
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
     for key in ("monitored", "write_m3u"):
         if key in b:
             db.run(f"UPDATE playlists SET {key}=? WHERE id=?", (1 if b[key] else 0, pl_id))
     return jsonify(db.one("SELECT * FROM playlists WHERE id=?", (pl_id,)))
+
+
+@app.post("/api/playlists")
+def create_playlist():
+    b = body()
+    return jsonify(id=playlists.create_local(b.get("name", ""), [int(x) for x in b.get("track_ids", [])]))
+
+
+@app.get("/api/playlists/local")
+def local_playlists():
+    return jsonify(db.q(
+        "SELECT p.id, p.name, (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id) AS count "
+        "FROM playlists p WHERE p.service='local' ORDER BY p.name COLLATE NOCASE"
+    ))
+
+
+@app.post("/api/playlists/<int:pl_id>/tracks")
+def playlist_add(pl_id):
+    b = body()
+    ids = [int(x) for x in b.get("track_ids", [])]
+    if b.get("album_id"):
+        ids += [r["id"] for r in db.q("SELECT id FROM tracks WHERE album_id=? ORDER BY disc_no, track_no, path", (int(b["album_id"]),))]
+    if b.get("artist_id"):
+        ids += [r["id"] for r in db.q(
+            "SELECT t.id FROM tracks t JOIN albums al ON al.id=t.album_id WHERE al.artist_id=? "
+            "ORDER BY al.release_date, t.disc_no, t.track_no", (int(b["artist_id"]),))]
+    try:
+        return jsonify(added=playlists.add_tracks(pl_id, ids))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+
+
+@app.delete("/api/playlists/<int:pl_id>/tracks/<int:entry_id>")
+def playlist_remove(pl_id, entry_id):
+    try:
+        playlists.remove_entries(pl_id, [entry_id])
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(ok=True)
+
+
+@app.put("/api/playlists/<int:pl_id>/order")
+def playlist_order(pl_id):
+    try:
+        playlists.reorder(pl_id, [int(x) for x in body().get("entry_ids", [])])
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(ok=True)
 
 
 @app.post("/api/playlists/<int:pl_id>/sync")

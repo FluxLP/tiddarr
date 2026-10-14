@@ -322,6 +322,120 @@ class AppleService:
                 "url": url, "count": len(uniq), "tracks": uniq}
 
 
+# ================================================== Music Assistant / Jellyfin
+# Playlists made in the players. Credentials come from the integrations.
+
+class MusicAssistantService:
+    id, name = "music_assistant", "Music Assistant"
+    can_search = False
+    # generated lists that are not real playlists
+    SKIP = {"random_tracks", "random_album", "random_artist", "infinite_mix", "infinite_mix_favorites",
+            "recently_added_tracks", "recently_played"}
+
+    def _ma(self):
+        from .integrations import INTEGRATIONS
+
+        return INTEGRATIONS["music_assistant"]
+
+    def connected(self):
+        return bool(self._ma().info().get("configured"))
+
+    def info(self):
+        return {"connected": self.connected(), "via_integration": True}
+
+    def call(self, cmd, **args):
+        c = self._ma().cfg()
+        try:
+            return self._ma()._call(c["url"], c["token"], cmd, **args)
+        except (ValueError, requests.RequestException) as e:
+            raise ServiceError(str(e))
+
+    @staticmethod
+    def _items(res):
+        return res.get("items", res) if isinstance(res, dict) else (res or [])
+
+    def _image(self, item):
+        for img in ((item.get("metadata") or {}).get("images") or []):
+            if img.get("type") == "thumb" and str(img.get("path", "")).startswith("http"):
+                return img["path"]
+        return None
+
+    def my_playlists(self):
+        out = []
+        for p in self._items(self.call("music/playlists/library_items", limit=500)):
+            maps = p.get("provider_mappings") or []
+            if any(m.get("provider_domain") == "opensubsonic" for m in maps):
+                continue  # that's Tiddarr's own playlist
+            if any(m.get("provider_domain") == "builtin" and m.get("item_id") in self.SKIP for m in maps):
+                continue
+            out.append({"service": self.id, "id": str(p["item_id"]), "name": p["name"],
+                        "owner": p.get("owner") or "Music Assistant", "image": self._image(p), "count": None, "url": None})
+        return out
+
+    def playlist(self, pid):
+        p = self.call("music/playlists/get", item_id=pid, provider_instance_id_or_domain="library")
+        tracks = []
+        for t in self._items(self.call("music/playlists/playlist_tracks", item_id=pid, provider_instance_id_or_domain="library")):
+            isrc = next((v for k, v in (t.get("external_ids") or []) if str(k).lower() == "isrc"), None)
+            tracks.append({
+                "title": t["name"] + (f" ({t['version']})" if t.get("version") else ""),
+                "artist": ", ".join(a["name"] for a in t.get("artists") or []),
+                "album": (t.get("album") or {}).get("name"), "isrc": isrc, "duration": t.get("duration"),
+                "cover": self._image(t.get("album") or {}) or self._image(t),
+            })
+        return {"service": self.id, "id": pid, "name": (p or {}).get("name", pid), "owner": "Music Assistant",
+                "image": self._image(p or {}), "url": None, "count": len(tracks), "tracks": tracks}
+
+
+class JellyfinService:
+    id, name = "jellyfin", "Jellyfin"
+    can_search = False
+
+    def _cfg(self):
+        from .integrations import INTEGRATIONS
+
+        return INTEGRATIONS["jellyfin"].cfg()
+
+    def connected(self):
+        c = self._cfg()
+        return bool(c.get("url") and c.get("api_key"))
+
+    def info(self):
+        return {"connected": self.connected(), "via_integration": True}
+
+    def get(self, path, params=None):
+        c = self._cfg()
+        try:
+            res = requests.get(f"{c['url']}{path}", params=params, headers={"X-Emby-Token": c["api_key"]}, timeout=30)
+            res.raise_for_status()
+            return res.json()
+        except requests.RequestException as e:
+            raise ServiceError(f"Jellyfin: {e}")
+
+    def _user(self):
+        users = self.get("/Users")
+        admin = next((u for u in users if (u.get("Policy") or {}).get("IsAdministrator")), None)
+        return (admin or users[0])["Id"]
+
+    def my_playlists(self):
+        res = self.get("/Items", {"userId": self._user(), "IncludeItemTypes": "Playlist", "Recursive": "true",
+                                  "Fields": "ChildCount", "MediaTypes": "Audio"})
+        return [{"service": self.id, "id": p["Id"], "name": p["Name"], "owner": "Jellyfin", "image": None,
+                 "count": p.get("ChildCount"), "url": None} for p in res.get("Items", [])]
+
+    def playlist(self, pid):
+        uid = self._user()
+        meta = self.get(f"/Users/{uid}/Items/{pid}")
+        res = self.get(f"/Playlists/{pid}/Items", {"userId": uid, "Fields": "ProviderIds"})
+        tracks = [{
+            "title": t.get("Name"), "artist": ", ".join(t.get("Artists") or []) or t.get("AlbumArtist"),
+            "album": t.get("Album"), "isrc": (t.get("ProviderIds") or {}).get("ISRC"),
+            "duration": round((t.get("RunTimeTicks") or 0) / 10_000_000) or None,
+        } for t in res.get("Items", []) if t.get("Type") == "Audio"]
+        return {"service": self.id, "id": pid, "name": meta.get("Name", pid), "owner": "Jellyfin", "image": None,
+                "url": None, "count": len(tracks), "tracks": tracks}
+
+
 # ============================================================ text / CSV import
 
 def parse_text(text: str) -> list[dict]:
@@ -371,7 +485,8 @@ def parse_text(text: str) -> list[dict]:
     return out
 
 
-SERVICES = {s.id: s for s in (TidalService(), DeezerService(), YouTubeService(), AppleService())}
+SERVICES = {s.id: s for s in (TidalService(), DeezerService(), YouTubeService(), AppleService(),
+                              MusicAssistantService(), JellyfinService())}
 
 
 def get(service_id: str):

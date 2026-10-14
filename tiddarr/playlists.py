@@ -23,15 +23,16 @@ sync_state: dict[int, dict] = {}
 
 def library_index() -> dict:
     rows = db.q(
-        "SELECT t.path, t.title, t.isrc, t.duration, ar.name AS artist FROM tracks t "
+        "SELECT t.id, t.path, t.title, t.isrc, t.duration, al.title AS album, ar.name AS artist FROM tracks t "
         "JOIN albums al ON al.id=t.album_id JOIN artists ar ON ar.id=al.artist_id"
     )
-    by_isrc, by_name = {}, {}
+    by_id, by_isrc, by_name = {}, {}, {}
     for r in rows:
+        by_id[r["id"]] = r
         if r["isrc"]:
             by_isrc.setdefault(r["isrc"], r)
-        by_name.setdefault((norm(r["artist"]), norm(r["title"])), r)
-    return {"isrc": by_isrc, "name": by_name}
+        by_name.setdefault((norm(r["artist"]), norm(r["title"])), []).append(r)
+    return {"id": by_id, "isrc": by_isrc, "name": by_name}
 
 
 def _main_artist(name: str | None) -> str:
@@ -42,9 +43,23 @@ def _main_artist(name: str | None) -> str:
 
 
 def find_in_library(idx: dict, t: dict) -> dict | None:
+    if t.get("track_id") and t["track_id"] in idx["id"]:
+        return idx["id"][t["track_id"]]
     if t.get("isrc") and t["isrc"] in idx["isrc"]:
         return idx["isrc"][t["isrc"]]
-    return idx["name"].get((norm(_main_artist(t.get("artist"))), norm(t.get("title"))))
+    cands = idx["name"].get((norm(_main_artist(t.get("artist"))), norm(t.get("title"))))
+    if not cands:
+        return None
+    # same song on several albums (studio, live, compilation): prefer the
+    # album the playlist names, then non-live versions, then similar length
+    want_album = norm(t.get("album"))
+
+    def score(c):
+        live = "live" in (c["album"] or "").lower() and "live" not in (t.get("album") or "").lower()
+        dur = abs((c["duration"] or 0) - (t.get("duration") or c["duration"] or 0))
+        return (want_album and norm(c["album"]) == want_album, not live, -dur)
+
+    return max(cands, key=score)
 
 
 def mark_owned(tracks: list[dict]) -> list[dict]:
@@ -142,7 +157,7 @@ def sync(pl_id: int, download: bool = True):
     st = sync_state.setdefault(pl_id, {})
     st.update(running=True, done=0, total=0, queued=0, not_found=0, message="")
     try:
-        if pl["service"] != "file":
+        if pl["service"] not in ("file", "local"):
             ref = pl["url"] if pl["service"] == "apple" else pl["remote_id"]
             remote = get_service(pl["service"]).playlist(ref)
             save(pl["service"], {**remote, "id": pl["remote_id"]}, bool(pl["monitored"]))
@@ -231,3 +246,94 @@ def remove_m3u(pl: dict):
 def refresh_m3u_all():
     for pl in db.q("SELECT id FROM playlists WHERE write_m3u=1"):
         write_m3u(pl["id"])
+
+
+# ------------------------------------------------------------ own playlists
+# service "local": playlists made in Tiddarr (or by Music Assistant through
+# the Subsonic API). Entries point straight at library tracks.
+
+def _changed(pl_id: int):
+    write_m3u(pl_id)
+    from . import integrations
+
+    integrations.notify_all()
+
+
+def create_local(name: str, track_ids: list[int] | None = None) -> int:
+    import uuid
+
+    name = (name or "").strip() or "Playlist"
+    cur = db.run(
+        "INSERT INTO playlists(service, remote_id, name, owner, last_sync) VALUES ('local', ?, ?, 'Tiddarr', CURRENT_TIMESTAMP)",
+        (uuid.uuid4().hex, name),
+    )
+    if track_ids:
+        add_tracks(cur.lastrowid, track_ids)
+    else:
+        _changed(cur.lastrowid)
+    return cur.lastrowid
+
+
+def _local(pl_id: int) -> dict:
+    pl = db.one("SELECT * FROM playlists WHERE id=?", (pl_id,))
+    if not pl or pl["service"] != "local":
+        raise ValueError("Only playlists created in Tiddarr can be edited")
+    return pl
+
+
+def add_tracks(pl_id: int, track_ids: list[int]) -> int:
+    _local(pl_id)
+    pos = (db.one("SELECT MAX(pos) AS m FROM playlist_tracks WHERE playlist_id=?", (pl_id,))["m"] or -1) + 1
+    n = 0
+    for tid in track_ids:
+        t = db.one(
+            "SELECT t.*, al.title AS album, ar.name AS artist_name FROM tracks t JOIN albums al ON al.id=t.album_id "
+            "JOIN artists ar ON ar.id=al.artist_id WHERE t.id=?", (tid,),
+        )
+        if not t:
+            continue
+        db.run(
+            "INSERT INTO playlist_tracks(playlist_id, pos, title, artist, album, isrc, duration, track_id, state) "
+            "VALUES (?,?,?,?,?,?,?,?, 'owned')",
+            (pl_id, pos, t["title"], t["artist"] or t["artist_name"], t["album"], t["isrc"], int(t["duration"] or 0), tid),
+        )
+        pos += 1
+        n += 1
+    db.run("UPDATE playlists SET last_sync=CURRENT_TIMESTAMP WHERE id=?", (pl_id,))
+    _changed(pl_id)
+    return n
+
+
+def remove_entries(pl_id: int, entry_ids: list[int]):
+    _local(pl_id)
+    for eid in entry_ids:
+        db.run("DELETE FROM playlist_tracks WHERE id=? AND playlist_id=?", (eid, pl_id))
+    reorder(pl_id, [r["id"] for r in db.q("SELECT id FROM playlist_tracks WHERE playlist_id=? ORDER BY pos", (pl_id,))])
+
+
+def reorder(pl_id: int, entry_ids: list[int]):
+    _local(pl_id)
+    for pos, eid in enumerate(entry_ids):
+        db.run("UPDATE playlist_tracks SET pos=? WHERE id=? AND playlist_id=?", (pos, eid, pl_id))
+    db.run("UPDATE playlists SET last_sync=CURRENT_TIMESTAMP WHERE id=?", (pl_id,))
+    _changed(pl_id)
+
+
+def rename(pl_id: int, name: str):
+    pl = _local(pl_id)
+    name = (name or "").strip()
+    if name and name != pl["name"]:
+        remove_m3u(pl)
+        db.run("UPDATE playlists SET name=?, last_sync=CURRENT_TIMESTAMP WHERE id=?", (name, pl_id))
+        _changed(pl_id)
+
+
+def local_entries(pl_id: int) -> list[dict]:
+    """Entries of a playlist that exist on disk, in order (what clients see)."""
+    idx = library_index()
+    out = []
+    for r in db.q("SELECT * FROM playlist_tracks WHERE playlist_id=? ORDER BY pos", (pl_id,)):
+        hit = find_in_library(idx, r)
+        if hit:
+            out.append({"entry_id": r["id"], "track_id": hit["id"], "path": hit["path"]})
+    return out

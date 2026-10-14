@@ -99,13 +99,14 @@ MIGRATIONS = [
     ("tracks", "has_art", "INTEGER NOT NULL DEFAULT 0", None),
     ("albums", "art_done", "INTEGER NOT NULL DEFAULT 0", None),
     ("albums", "match_state", "TEXT", None),
+    ("playlist_tracks", "track_id", "INTEGER", None),
 ]
 
 
 def init():
     c = conn()
     c.executescript(SCHEMA)
-    c.executescript(PLAYLIST_SCHEMA)
+    c.executescript(PLAYLIST_SCHEMA)  # before MIGRATIONS, which extend it
     for table, column, definition, after in MIGRATIONS:
         cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
         if column not in cols:

@@ -499,21 +499,16 @@ def get_lyrics():
 # ------------------------------------------------------------------ playlists
 
 def _playlist_songs(pl_id: int) -> list[dict]:
-    idx = playlists.library_index()
-    paths = []
-    for r in db.q("SELECT * FROM playlist_tracks WHERE playlist_id=? ORDER BY pos", (pl_id,)):
-        hit = playlists.find_in_library(idx, r)
-        if hit:
-            paths.append(hit["path"])
-    if not paths:
+    ids = [e["track_id"] for e in playlists.local_entries(pl_id)]
+    if not ids:
         return []
-    by_path = {t["path"]: t for t in db.q(TRACK_SQL + f" WHERE t.path IN ({','.join('?' * len(paths))})", paths)}
-    return [song(by_path[p]) for p in paths if p in by_path]
+    by_id = {t["id"]: t for t in db.q(TRACK_SQL + f" WHERE t.id IN ({','.join('?' * len(set(ids)))})", list(set(ids)))}
+    return [song(by_id[i]) for i in ids if i in by_id]
 
 
 def _playlist(p: dict, songs: list[dict] | None = None) -> dict:
     songs = songs if songs is not None else _playlist_songs(p["id"])
-    out = {"id": f"pl-{p['id']}", "name": p["name"], "owner": db.get_setting("subsonic_user"), "public": True,
+    out = {"id": f"pl-{p['id']}", "name": p["name"], "owner": db.get_setting("subsonic_user"), "public": p["service"] != "local",
            "songCount": len(songs), "duration": sum(s["duration"] for s in songs),
            "created": _iso(p.get("added_at")), "changed": _iso(p.get("last_sync") or p.get("added_at")),
            "coverArt": songs[0]["coverArt"] if songs else None, "comment": p.get("owner") or ""}
@@ -532,6 +527,61 @@ def get_playlist():
         raise Error(70, "Playlist not found")
     songs = _playlist_songs(p["id"])
     return respond({"playlist": {**_playlist(p, songs), "entry": songs}})
+
+
+def _song_ids(name: str) -> list[int]:
+    return [_id("tr", v) for v in request.values.getlist(name) if v]
+
+
+def _editable(pid: str) -> dict:
+    p = db.one("SELECT * FROM playlists WHERE id=?", (_id("pl", pid),))
+    if not p:
+        raise Error(70, "Playlist not found")
+    if p["service"] != "local":
+        raise Error(50, "Imported playlists are read-only; edit them at their source")
+    return p
+
+
+@_endpoint("createPlaylist")
+def create_playlist():
+    songs = _song_ids("songId")
+    pid = _param("playlistId")
+    if pid:  # replace the songs of an existing playlist
+        p = _editable(pid)
+        playlists.remove_entries(p["id"], [r["id"] for r in db.q("SELECT id FROM playlist_tracks WHERE playlist_id=?", (p["id"],))])
+        playlists.add_tracks(p["id"], songs)
+        new_id = p["id"]
+    else:
+        new_id = playlists.create_local(_param("name", required=True), songs)
+    p = db.one("SELECT * FROM playlists WHERE id=?", (new_id,))
+    entries = _playlist_songs(new_id)
+    return respond({"playlist": {**_playlist(p, entries), "entry": entries}})
+
+
+@_endpoint("updatePlaylist")
+def update_playlist():
+    p = _editable(_param("playlistId", required=True))
+    if _param("name"):
+        playlists.rename(p["id"], _param("name"))
+    remove = {int(i) for i in request.values.getlist("songIndexToRemove") if i.isdigit()}
+    if remove:
+        visible = playlists.local_entries(p["id"])  # indexes refer to what getPlaylist returned
+        playlists.remove_entries(p["id"], [e["entry_id"] for i, e in enumerate(visible) if i in remove])
+    add = _song_ids("songIdToAdd")
+    if add:
+        playlists.add_tracks(p["id"], add)
+    return respond()
+
+
+@_endpoint("deletePlaylist")
+def delete_playlist():
+    p = _editable(_param("id", required=True))
+    playlists.remove_m3u(p)
+    db.run("DELETE FROM playlists WHERE id=?", (p["id"],))
+    from . import integrations
+
+    integrations.notify_all()
+    return respond()
 
 
 # ------------------------------------------------------------------ media

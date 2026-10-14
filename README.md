@@ -50,6 +50,11 @@ automatically. Monitored artists are checked for new releases on a schedule.
   Feishin …): artists, albums, playlists, covers and Hi-Res streaming.
 - **Integrations** – after downloads Tiddarr tells Jellyfin and Music
   Assistant to rescan (Music Assistant 2.7+ via long-lived token).
+- **Your own playlists** – create playlists in Tiddarr, add songs, albums or
+  whole artists (right-click, buttons, multi-select), reorder and rename.
+  They show up in Music Assistant (and can be edited there) and in Jellyfin
+  automatically. Playlists made in Music Assistant or Jellyfin show up in
+  Tiddarr, where missing songs can be downloaded.
 - **Delete** artists, albums or songs (right-click or button), optionally
   including the files on disk.
 - Collapsible sidebar, folder picker for the music folder.
@@ -129,6 +134,7 @@ country are derived from its song chart.
 | YouTube Music | public playlists, search; library with browser headers | – (ytmusicapi is included) |
 | Apple Music | shared playlist links | – |
 | Amazon Music & others | CSV / "Artist - Title" text import | – |
+| Music Assistant, Jellyfin | their playlists (and MA favourites) | the integration in Settings → Integrations |
 
 Before every download Tiddarr asks Tidal whether the account may stream the
 track. Without that check, tiddl misreads a *“quality not allowed in
