@@ -78,6 +78,9 @@ const STRINGS = {
     never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
     stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
     plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
+    own_tab: "Own", import_tab: "Import", unnamed: "Untitled", lookup_waiting: "Waiting for lookup", lookup_running: "Looking up",
+    choose_files: "Choose CSV files", paste_text: "Paste text", csv_hint: "Spotify: export via", paste_placeholder: "Artist - Title (one per line) or CSV",
+    no_imports: "No imported playlists yet – search, paste a link or import CSV files above.", no_own: "No own playlists yet – create one or add songs via right-click.",
     already_queued: "Already in the queue", pause: "Pause", resume: "Resume", clear_queue: "Clear queue", cleared: "downloads removed",
     paused_banner: "Downloads are paused. Waiting jobs stay in the queue until you resume.",
     clear_queue_text: "Removes all {n} waiting downloads and stops the running one. Songs already on disk stay.",
@@ -174,6 +177,9 @@ const STRINGS = {
     never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
     stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
     plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
+    own_tab: "Eigene", import_tab: "Import", unnamed: "Ohne Namen", lookup_waiting: "Wartet auf Abgleich", lookup_running: "Abgleich",
+    choose_files: "CSV-Dateien wählen", paste_text: "Text einfügen", csv_hint: "Spotify: exportieren über", paste_placeholder: "Interpret - Titel (eine Zeile pro Song) oder CSV",
+    no_imports: "Noch keine importierten Playlists – oben suchen, Link einfügen oder CSV-Dateien importieren.", no_own: "Noch keine eigenen Playlists – lege eine an oder füge Songs per Rechtsklick hinzu.",
     already_queued: "Ist schon in der Warteschlange", pause: "Pausieren", resume: "Fortsetzen", clear_queue: "Warteschlange leeren", cleared: "Downloads entfernt",
     paused_banner: "Downloads sind pausiert. Wartende Downloads bleiben in der Warteschlange, bis du fortsetzt.",
     clear_queue_text: "Entfernt alle {n} wartenden Downloads und bricht den laufenden ab. Bereits geladene Songs bleiben erhalten.",
@@ -871,80 +877,75 @@ function parsePlaylistLink(v) {
 }
 
 function playlistCard(p) {
-  const href = p.saved_id && p.service === "file" ? `#/saved/${p.saved_id}` : `#/playlist/${p.service}/${encodeURIComponent(p.id)}`;
+  const isSaved = p.remote_id !== undefined;
+  const href = isSaved ? `#/saved/${p.id}` : (p.saved_id && p.service === "file" ? `#/saved/${p.saved_id}` : `#/playlist/${p.service}/${encodeURIComponent(p.id)}`);
+  const src = p.source ? (SERVICE_NAMES[p.source] || p.source) : (p.owner || SERVICE_NAMES[p.service]);
+  const count = isSaved ? `${p.owned}/${p.count} ${t("tracks_owned")}` : (p.count != null ? `${p.count} ${t("songs")}` : "");
+  const sync = p.sync && p.sync.running;
   return `<a class="card" href="${href}"><div class="img" ${bg(p.image)}></div>
-    <div class="body"><div class="title" title="${esc(p.name)}">${esc(p.name)}</div>
-    <div class="sub">${esc(p.owner || SERVICE_NAMES[p.service])}${p.count != null ? ` · ${p.count} ${esc(t("songs"))}` : ""}</div>
-    ${p.monitored ? `<div><span class="badge ok">${esc(t("monitored"))}</span></div>` : ""}</div></a>`;
+    <div class="body"><div class="title" title="${esc(p.name || t("unnamed"))}">${esc(p.name || t("unnamed"))}</div>
+    <div class="sub">${esc(src || "")}${count ? " · " + esc(count) : ""}</div>
+    <div>${p.monitored ? `<span class="badge ok">${esc(t("monitor_pl"))}</span> ` : ""}${sync ? `<span class="badge info">${p.sync.queued_sync ? esc(t("lookup_waiting")) : `${esc(t("lookup_running"))} ${p.sync.done}/${p.sync.total}`}</span>` : ""}</div></div></a>`;
 }
 
 async function viewPlaylists(_, alive) {
   const [svcs, saved] = await Promise.all([api("/services"), api("/playlists")]);
   if (!alive()) return;
-  const mine = svcs.filter((x) => x.connected && x.id !== "apple");
-  const searchable = svcs.filter((x) => x.can_search && (x.id !== "youtube" || x.available) && (x.id !== "spotify" || x.connected));
-  let svc = localStorage.getItem("plService");
-  if (!mine.some((x) => x.id === svc)) svc = mine[0] ? mine[0].id : null;
+  const remoteTabs = svcs.filter((x) => x.connected && x.id !== "apple").map((x) => [x.id, x.name]);
+  const tabs = [["own", t("own_tab")], ["import", t("import_tab")], ...remoteTabs];
+  let tab = localStorage.getItem("plTab");
+  if (!tabs.some(([id]) => id === tab)) tab = saved.some((p) => p.service !== "local") ? "import" : "own";
+  const searchable = svcs.filter((x) => x.can_search && (x.id !== "youtube" || x.available));
   const mode0 = ["search", "url", "csv"].includes(localStorage.getItem("plMode")) ? localStorage.getItem("plMode") : "search";
-  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span><button class="btn primary" id="newPlBtn">${esc(t("new_playlist"))}</button><a class="btn" href="#/settings/accounts">${esc(t("services"))}</a></div>
-    <div class="panel">
-      <div class="tabs" id="plModes" style="margin-top:-6px">${[["search", "search_playlists"], ["url", "pl_url"], ["csv", "pl_csv"]].map(([m, k]) => `<button data-m="${m}">${esc(t(k))}</button>`).join("")}</div>
-      <form class="toolbar" id="plSearch" data-mode="search" style="margin:0"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
-        <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("search"))}</button></form>
-      <form class="toolbar" id="plLink" data-mode="url" style="margin:0"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("open"))}</button></form>
-      <div data-mode="csv"><p class="muted small" style="margin-top:0">${esc(t("import_help"))} <a href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a></p>
-        <div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"><label class="btn">${esc(t("choose_file"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" multiple hidden></label></div>
-        <textarea id="impText" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
-        <div class="toolbar" style="margin:10px 0 0"><button class="btn primary" id="impGo">${esc(t("import_go"))}</button></div></div>
-      <div id="plResults" style="margin-top:14px"></div>
-    </div>
-    ${saved.length ? `<h2>${esc(t("saved_playlists"))}</h2><table class="list">${saved.map((p) => `<tr><td><a href="#/saved/${p.id}">${esc(p.name)}</a><div class="muted small">${esc(SERVICE_NAMES[p.service])}${p.owner ? " · " + esc(p.owner) : ""}</div></td>
-      <td class="muted">${p.owned}/${p.count} ${esc(t("tracks_owned"))}${p.notfound ? ` · ${p.notfound} ${esc(t("not_found"))}` : ""}</td>
-      <td>${p.sync && p.sync.running ? `<span class="spinner"></span> ${p.sync.done}/${p.sync.total}` : p.monitored ? `<span class="badge ok">${esc(t("monitored"))}</span>` : ""}</td></tr>`).join("")}</table>` : ""}
-    <div class="toolbar" style="margin-top:28px"><h2 style="margin:0">${esc(t("my_playlists"))}</h2><span class="spacer"></span>
-      ${mine.length ? `<div class="seg" id="plMine">${mine.map((x) => `<button data-s="${x.id}" class="${x.id === svc ? "on" : ""}">${esc(x.name)}</button>`).join("")}</div>` : ""}</div>
-    <div id="plMineList">${svc ? `<span class="spinner"></span>` : `<div class="empty"><a href="#/settings/accounts">${esc(t("services"))}</a></div>`}</div>`;
 
-  $("#newPlBtn").onclick = () => {
-    const m = modal(`<h2>${esc(t("new_playlist"))}</h2><form class="toolbar" id="npf" style="margin:0"><input type="text" id="npn" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("create"))}</button></form>`);
-    $("#npn", m).focus();
-    $("#npf", m).onsubmit = async (e) => { e.preventDefault(); const r = await act(() => post("/playlists", { name: $("#npn", m).value })); closeModal(); location.hash = `#/saved/${r.id}`; };
-  };
+  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span>
+      <button class="btn primary" id="newPlBtn">${esc(t("new_playlist"))}</button><a class="btn" href="#/settings/accounts">${esc(t("services"))}</a></div>
+    <div class="import-bar">
+      <div class="seg" id="plModes">${[["search", "search"], ["url", "pl_url"], ["csv", "pl_csv"]].map(([m, k]) => `<button data-m="${m}">${esc(t(k))}</button>`).join("")}</div>
+      <form data-mode="search" id="plSearch" class="import-row"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
+        <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}"><button class="btn primary">${esc(t("search"))}</button></form>
+      <form data-mode="url" id="plLink" class="import-row"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}"><button class="btn primary">${esc(t("open"))}</button></form>
+      <div data-mode="csv" class="import-row"><label class="btn primary">${esc(t("choose_files"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" multiple hidden></label>
+        <button class="btn" id="pasteToggle" type="button">${esc(t("paste_text"))}</button>
+        <span class="muted small">${esc(t("csv_hint"))} <a href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a></span></div>
+    </div>
+    <div id="pastePanel" class="panel" hidden><div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"></div>
+      <textarea id="impText" rows="5" placeholder="${esc(t("paste_placeholder"))}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
+      <div class="toolbar" style="margin:10px 0 0"><button class="btn primary" id="impGo">${esc(t("import_go"))}</button></div></div>
+    <div id="plResults"></div>
+    <div class="tabs" id="plTabs">${tabs.map(([id, label]) => `<button data-tab="${id}">${esc(label)}</button>`).join("")}</div>
+    <div id="plFilter"></div><div id="plList"></div>`;
+
+  // ---- import bar
   const setMode = (m) => {
     localStorage.setItem("plMode", m);
     $("#plModes").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
-    main.querySelectorAll("[data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== m));
-    $("#plResults").innerHTML = "";
+    main.querySelectorAll(".import-bar [data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== m));
+    if (m !== "csv") $("#pastePanel").hidden = true;
   };
   $("#plModes").onclick = (e) => { if (e.target.dataset.m) setMode(e.target.dataset.m); };
   setMode(mode0);
-
-  const loadMine = async () => {
-    if (!svc) return;
-    $("#plMineList").innerHTML = `<span class="spinner"></span>`;
-    try {
-      const list = await api(`/services/${svc}/playlists`);
-      if (!alive()) return;
-      $("#plMineList").innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="empty">${esc(t("no_results"))}</div>`;
-    } catch (e) { $("#plMineList").innerHTML = `<div class="banner err">${esc(e.message)}</div>`; }
+  $("#pasteToggle").onclick = () => { $("#pastePanel").hidden = !$("#pastePanel").hidden; };
+  const results = (html) => {
+    $("#plResults").innerHTML = html ? `<div class="results-box"><button class="icon-btn results-close" title="${esc(t("cancel"))}"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>${html}</div>` : "";
+    $("#plResults .results-close")?.addEventListener("click", () => results(""));
   };
-  $("#plMine")?.addEventListener("click", (e) => { if (e.target.dataset.s) { svc = e.target.dataset.s; localStorage.setItem("plService", svc); $("#plMine").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.s === svc)); loadMine(); } });
   $("#plSearch").onsubmit = async (e) => {
     e.preventDefault();
     const q = $("#plQ").value.trim(); if (!q) return;
-    $("#plResults").innerHTML = `<span class="spinner"></span>`;
+    results(`<span class="spinner"></span>`);
     try {
       const list = await api(`/services/${$("#plSvc").value}/search?q=${encodeURIComponent(q)}`);
-      $("#plResults").innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="empty">${esc(t("no_results"))}</div>`;
-    } catch (err) { $("#plResults").innerHTML = `<div class="banner err">${esc(err.message)}</div>`; }
+      results(list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="muted">${esc(t("no_results"))}</div>`);
+    } catch (err) { results(`<div class="banner err">${esc(err.message)}</div>`); }
   };
   $("#plLink").onsubmit = (e) => {
     e.preventDefault();
     const r = parsePlaylistLink($("#plUrl").value);
     if (!r) return toast(t("no_results"), true);
     if (r[0] === "spotify") {
-      $("#plResults").innerHTML = `<div class="banner">${esc(t("sp_link_hint"))} <a class="btn small primary" href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a> <button class="btn small" id="toCsv">${esc(t("pl_csv"))}</button></div>`;
-      $("#toCsv").onclick = () => setMode("csv");
+      results(`<div class="banner">${esc(t("sp_link_hint"))} <a class="btn small primary" href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a> <button class="btn small" id="toCsv">${esc(t("pl_csv"))}</button></div>`);
+      $("#toCsv").onclick = () => { results(""); setMode("csv"); };
       return;
     }
     location.hash = `#/playlist/${r[0]}/${encodeURIComponent(r[1])}`;
@@ -952,18 +953,13 @@ async function viewPlaylists(_, alive) {
   const fileName = (f) => f.name.replace(/\.\w+$/, "").replace(/_/g, " ");
   $("#impFile").onchange = async (e) => {
     const files = [...e.target.files];
-    if (files.length === 1) {
-      $("#impText").value = await files[0].text();
-      if (!$("#impName").value) $("#impName").value = fileName(files[0]);
-      return;
-    }
-    // several Exportify files: one playlist per file
     let n = 0;
     for (const f of files) {
       try { await post("/import/text", { name: fileName(f), text: await f.text() }); n++; }
       catch (err) { toast(`${f.name}: ${err.message}`, true); }
     }
     toast(`${n} ${t("files_imported")}`);
+    localStorage.setItem("plTab", "import");
     route();
   };
   $("#impGo").onclick = async () => {
@@ -971,7 +967,49 @@ async function viewPlaylists(_, alive) {
     toast(`${r.tracks} ${t("songs")} ${t("imported")}`);
     location.hash = `#/saved/${r.id}`;
   };
-  loadMine();
+  $("#newPlBtn").onclick = () => {
+    const m = modal(`<h2>${esc(t("new_playlist"))}</h2><form class="toolbar" id="npf" style="margin:0"><input type="text" id="npn" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("create"))}</button></form>`);
+    $("#npn", m).focus();
+    $("#npf", m).onsubmit = async (e) => { e.preventDefault(); const r = await act(() => post("/playlists", { name: $("#npn", m).value })); closeModal(); location.hash = `#/saved/${r.id}`; };
+  };
+
+  // ---- tabs
+  let filter = localStorage.getItem("plFilter") || "all";
+  const showSaved = (list, withFilter) => {
+    if (withFilter) {
+      const sources = [...new Set(list.map((p) => p.source))].sort();
+      if (filter !== "all" && filter !== "monitored" && !sources.includes(filter)) filter = "all";
+      const countOf = (id) => (id === "all" ? list.length : id === "monitored" ? list.filter((p) => p.monitored).length : list.filter((p) => p.source === id).length);
+      const chips = [["all", t("all")], ...sources.map((x) => [x, SERVICE_NAMES[x] || x])];
+      if (list.some((p) => p.monitored)) chips.push(["monitored", t("monitor_pl")]);
+      $("#plFilter").innerHTML = chips.length > 1 ? `<div class="chips">${chips.map(([id, label]) => `<button data-f="${esc(id)}" class="chip ${filter === id ? "on" : ""}">${esc(label)} <span class="muted">${countOf(id)}</span></button>`).join("")}</div>` : "";
+      $("#plFilter").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; localStorage.setItem("plFilter", filter); showSaved(list, true); } };
+      list = filter === "all" ? list : filter === "monitored" ? list.filter((p) => p.monitored) : list.filter((p) => p.source === filter);
+    } else $("#plFilter").innerHTML = "";
+    $("#plList").innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="empty">${esc(t(withFilter ? "no_imports" : "no_own"))}</div>`;
+  };
+  const showTab = async (id) => {
+    tab = id; localStorage.setItem("plTab", id);
+    $("#plTabs").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.tab === id));
+    if (id === "own") return showSaved(saved.filter((p) => p.service === "local"), false);
+    if (id === "import") return showSaved(saved.filter((p) => p.service !== "local"), true);
+    $("#plFilter").innerHTML = "";
+    $("#plList").innerHTML = `<span class="spinner"></span>`;
+    try {
+      const list = await api(`/services/${id}/playlists`);
+      if (!alive() || tab !== id) return;
+      $("#plList").innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="empty">${esc(t("no_results"))}</div>`;
+    } catch (e) { $("#plList").innerHTML = `<div class="banner err">${esc(e.message)}</div>`; }
+  };
+  $("#plTabs").onclick = (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); };
+  showTab(tab);
+  // keep lookup progress current on the import tab
+  viewTimer = setInterval(async () => {
+    if (tab !== "import" || !saved.some((p) => p.sync && p.sync.running)) return;
+    const fresh = await api("/playlists");
+    saved.splice(0, saved.length, ...fresh);
+    if (tab === "import") showSaved(saved.filter((p) => p.service !== "local"), true);
+  }, 5000);
 }
 
 function playlistTrackTable(tracks, withState) {
@@ -1054,13 +1092,19 @@ async function viewSavedPlaylist(id, alive) {
     if (!alive()) return;
     const owned = tracks.filter((x) => x.owned).length;
     if (p.service === "local") return renderLocalPlaylist(p, tracks);
-    main.innerHTML = `${loginBanner()}<div class="hero"><div class="art" ${bg(p.image)}></div><div class="meta"><span class="muted">${esc(SERVICE_NAMES[p.service])} · Playlist</span><h1>${esc(p.name)}</h1>
+    const renameBtn = p.service === "file" ? `<button class="btn" id="renameImp">${esc(t("rename"))}</button>` : "";
+    main.innerHTML = `${loginBanner()}<div class="hero"><div class="art" ${bg(p.image)}></div><div class="meta"><span class="muted">${esc(SERVICE_NAMES[p.service])} · Playlist</span><h1>${esc(p.name || t("unnamed"))}</h1>
       <div class="stats"><span><b>${tracks.length}</b> ${esc(t("songs"))}</span><span><b>${owned}</b> ${esc(t("tracks_owned"))}</span>${p.last_sync ? `<span>${esc(t("synced"))}: ${esc(p.last_sync)}</span>` : ""}
         ${sync && sync.running ? `<span><span class="spinner"></span> ${sync.done}/${sync.total} ${esc(sync.message || "")}</span>` : ""}${sync && !sync.running && sync.message && sync.message.startsWith("error") ? `<span class="badge err">${esc(sync.message)}</span>` : ""}</div>
       <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="dlAllSaved" ${tracks.every((x) => x.owned || x.state === "queued" || x.state === "notfound") ? "disabled" : ""}>${esc(t("download_all"))}</button><button class="btn" id="sync">${esc(t("refresh_pl"))}</button>
         <label class="btn" title="${esc(t("monitor_pl_help"))}"><input type="checkbox" id="mon" ${p.monitored ? "checked" : ""}> ${esc(t("monitor_pl"))}</label>
         <label class="btn"><input type="checkbox" id="m3u" ${p.write_m3u ? "checked" : ""}> ${esc(t("write_m3u"))}</label>
-        <button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>${playlistTrackTable(tracks, true)}`;
+        ${renameBtn}<button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>${playlistTrackTable(tracks, true)}`;
+    $("#renameImp")?.addEventListener("click", () => {
+      const m = modal(`<h2>${esc(t("rename"))}</h2><form class="toolbar" id="rnf" style="margin:0"><input type="text" id="rnn" value="${esc(p.name)}" style="flex:1"><button class="btn primary">${esc(t("save"))}</button></form>`);
+      $("#rnn", m).focus();
+      $("#rnf", m).onsubmit = async (e) => { e.preventDefault(); await act(() => put(`/playlists/${id}`, { name: $("#rnn", m).value }), t("saved")); closeModal(); load(); };
+    });
     $("#sync").onclick = async () => { await act(() => post(`/playlists/${id}/sync`)); setTimeout(load, 1000); };
     $("#dlAllSaved").onclick = async () => { await act(() => post(`/playlists/${id}/sync`, { download: true }), t("added_queue")); setTimeout(load, 1000); };
     $("#mon").onchange = (e) => act(() => put(`/playlists/${id}`, { monitored: e.target.checked }), t("saved"));

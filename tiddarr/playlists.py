@@ -143,8 +143,8 @@ def _store_tracks(pl_id: int, tracks: list[dict]):
             )
 
 
-def import_tracks(service: str, remote_id: str, name: str, tracks: list[dict], monitored=False) -> int:
-    pl_id = save(service, {"id": remote_id, "name": name}, monitored)
+def import_tracks(service: str, remote_id: str, name: str, tracks: list[dict], monitored=False, owner=None) -> int:
+    pl_id = save(service, {"id": remote_id, "name": name, "owner": owner}, monitored)
     _store_tracks(pl_id, tracks)
     return pl_id
 
@@ -176,7 +176,7 @@ def sync(pl_id: int, download: bool = False):
     if not pl:
         return
     st = sync_state.setdefault(pl_id, {})
-    st.update(running=True, done=0, total=0, queued=0, not_found=0, message="")
+    st.update(running=True, queued_sync=False, done=0, total=0, queued=0, not_found=0, message="")
     try:
         if pl["service"] not in ("file", "local"):
             ref = pl["url"] if pl["service"] == "apple" else pl["remote_id"]
@@ -236,8 +236,44 @@ def download_entry(entry_id: int) -> dict:
     return {"tidal_id": tid, "job": job}
 
 
+_jobs: "queue.Queue[tuple[int, bool]]" = __import__("queue").Queue()
+_pending: set[int] = set()
+_worker_started = False
+
+
+def _sync_worker():
+    while True:
+        pl_id, download = _jobs.get()
+        try:
+            sync(pl_id, download)
+        except Exception:
+            log.exception("sync playlist %s", pl_id)
+        finally:
+            _pending.discard(pl_id)
+
+
 def sync_async(pl_id: int, download=False):
-    threading.Thread(target=sync, args=(pl_id, download), daemon=True).start()
+    """Queue a playlist sync. Syncs run one after another – importing many
+    playlists at once must not flood Tidal with parallel lookups."""
+    global _worker_started
+    if not _worker_started:
+        _worker_started = True
+        threading.Thread(target=_sync_worker, daemon=True, name="playlist-sync").start()
+    if pl_id in _pending and not download:
+        return
+    _pending.add(pl_id)
+    sync_state.setdefault(pl_id, {}).update(running=True, queued_sync=True, done=0, total=0, message="")
+    _jobs.put((pl_id, download))
+
+
+def resume_unfinished():
+    """Continue lookups that were interrupted (e.g. by a restart)."""
+    for pl in db.q(
+        "SELECT p.id FROM playlists p WHERE p.service != 'local' AND (p.last_sync IS NULL OR EXISTS ("
+        "SELECT 1 FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.cover IS NULL AND t.state != 'notfound')) "
+        "ORDER BY p.last_sync IS NOT NULL, p.id"
+    ):
+        sync_async(pl["id"])
 
 
 def sync_monitored():
@@ -356,7 +392,9 @@ def reorder(pl_id: int, entry_ids: list[int]):
 
 
 def rename(pl_id: int, name: str):
-    pl = _local(pl_id)
+    pl = db.one("SELECT * FROM playlists WHERE id=?", (pl_id,))
+    if not pl or pl["service"] not in ("local", "file"):
+        raise ValueError("Only playlists created or imported in Tiddarr can be renamed")
     name = (name or "").strip()
     if name and name != pl["name"]:
         remove_m3u(pl)

@@ -690,7 +690,15 @@ def import_text():
     if not tracks:
         return jsonify(error="No songs recognized. Use a CSV export or one 'Artist - Title' per line."), 400
     name = (b.get("name") or "Import").strip()
-    pl_id = playlists.import_tracks("file", f"{name}-{int(__import__('time').time())}", name, tracks)
+    text = b.get("text", "")
+    # remember where the list came from, for filtering
+    if "spotify:track:" in text or "open.spotify.com" in text:
+        origin = "Spotify"
+    elif "music.amazon" in text.lower():
+        origin = "Amazon Music"
+    else:
+        origin = (b.get("origin") or "CSV").strip()
+    pl_id = playlists.import_tracks("file", f"{name}-{int(__import__('time').time())}", name, tracks, owner=origin)
     playlists.sync_async(pl_id)
     return jsonify(id=pl_id, tracks=len(tracks))
 
@@ -700,11 +708,15 @@ def saved_playlists():
     rows = db.q(
         "SELECT p.*, (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id) AS count, "
         "(SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.state='owned') AS owned, "
-        "(SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.state='notfound') AS notfound "
+        "(SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.state='notfound') AS notfound, "
+        "(SELECT t.cover FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.cover IS NOT NULL ORDER BY t.pos LIMIT 1) AS first_cover "
         "FROM playlists p ORDER BY p.name COLLATE NOCASE"
     )
     for r in rows:
         r["sync"] = playlists.sync_state.get(r["id"])
+        # source for filtering: the service, or for file imports where the list came from
+        r["source"] = (r["owner"] or "CSV") if r["service"] == "file" else r["service"]
+        r["image"] = r["image"] or r["first_cover"]
     return jsonify(rows)
 
 
@@ -974,6 +986,7 @@ def queue_clear():
 def create_app():
     db.init()
     subsonic.ensure_credentials()
+    playlists.resume_unfinished()
     downloader.start()
     scheduler.start()
     if not db.one("SELECT 1 FROM tracks LIMIT 1"):
