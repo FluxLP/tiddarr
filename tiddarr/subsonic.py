@@ -62,6 +62,8 @@ def _xml(tag: str, value, parent=None):
                     _xml(k, item, el)
             elif isinstance(v, dict):
                 _xml(k, v, el)
+            elif k == "value":  # Subsonic puts text content (e.g. lyrics) in the element body
+                el.text = str(v)
             else:
                 el.set(k, str(v).lower() if isinstance(v, bool) else str(v))
     return el
@@ -451,13 +453,47 @@ _EMPTY = {
     "getInternetRadioStations": {"internetRadioStations": {}}, "getBookmarks": {"bookmarks": {}},
     "getSimilarSongs2": {"similarSongs2": {}}, "getSimilarSongs": {"similarSongs": {}}, "getTopSongs": {"topSongs": {}},
     "getSongsByGenre": {"songsByGenre": {}}, "getShares": {"shares": {}}, "getChatMessages": {"chatMessages": {}},
-    "getLyricsBySongId": {"lyricsList": {}}, "getLyrics": {"lyrics": {}},
+    "getLyricsBySongId": {"lyricsList": {"structuredLyrics": []}},
 }
 for _name, _payload in _EMPTY.items():
     _endpoint(_name)(lambda _p=_payload: respond(_p))
 for _name in ("scrobble", "star", "unstar", "setRating", "savePlayQueue"):
     _endpoint(_name)(lambda: respond())
 _endpoint("getPlayQueue")(lambda: respond())
+
+
+def _embedded_lyrics(path: str) -> str:
+    try:
+        import mutagen
+
+        f = mutagen.File(path)
+        tags = getattr(f, "tags", None) or {}
+        if hasattr(tags, "getall"):  # ID3
+            uslt = tags.getall("USLT")
+            return str(uslt[0].text) if uslt else ""
+        for key in ("lyrics", "LYRICS", "unsyncedlyrics", "UNSYNCEDLYRICS", "\xa9lyr"):
+            v = tags.get(key)
+            if v:
+                return str(v[0] if isinstance(v, list) else v)
+    except Exception:
+        pass
+    return ""
+
+
+@_endpoint("getLyrics")
+def get_lyrics():
+    # clients expect "value" even when there are no lyrics
+    a_name, title = _param("artist", ""), _param("title", "")
+    value = ""
+    if title:
+        t = db.one(
+            "SELECT t.path FROM tracks t JOIN albums al ON al.id=t.album_id JOIN artists ar ON ar.id=al.artist_id "
+            "WHERE t.title=? COLLATE NOCASE AND (?='' OR t.artist LIKE ? OR ar.name=? COLLATE NOCASE) LIMIT 1",
+            (title, a_name, f"%{a_name}%", a_name),
+        )
+        if t:
+            value = _embedded_lyrics(t["path"])
+    return respond({"lyrics": {"artist": a_name, "title": title, "value": value}})
 
 
 # ------------------------------------------------------------------ playlists
