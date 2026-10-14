@@ -93,9 +93,25 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+MIGRATIONS = [
+    # (table, column, definition, sql to run once after adding)
+    ("tracks", "isrc", "TEXT", "UPDATE tracks SET mtime=0"),  # force re-read of tags
+    ("tracks", "has_art", "INTEGER NOT NULL DEFAULT 0", None),
+    ("albums", "art_done", "INTEGER NOT NULL DEFAULT 0", None),
+    ("albums", "match_state", "TEXT", None),
+]
+
+
 def init():
     c = conn()
     c.executescript(SCHEMA)
+    c.executescript(PLAYLIST_SCHEMA)
+    for table, column, definition, after in MIGRATIONS:
+        cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            if after:
+                c.execute(after)
     for key, value in DEFAULT_SETTINGS.items():
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (key, value))
     # Jobs that were running when the process died will never finish.
@@ -144,3 +160,30 @@ def set_setting(key: str, value: str):
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (key, str(value)),
     )
+
+
+PLAYLIST_SCHEMA = """
+CREATE TABLE IF NOT EXISTS playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service TEXT NOT NULL,
+    remote_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    owner TEXT,
+    image TEXT,
+    url TEXT,
+    monitored INTEGER NOT NULL DEFAULT 0,
+    write_m3u INTEGER NOT NULL DEFAULT 1,
+    last_sync TEXT,
+    added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(service, remote_id)
+);
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    pos INTEGER NOT NULL,
+    title TEXT, artist TEXT, album TEXT, isrc TEXT, duration INTEGER, cover TEXT,
+    tidal_id INTEGER,
+    state TEXT NOT NULL DEFAULT 'new'
+);
+CREATE INDEX IF NOT EXISTS playlist_tracks_pl ON playlist_tracks(playlist_id);
+"""

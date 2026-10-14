@@ -272,7 +272,8 @@ def ensure_album(tidal_album: dict, monitored: bool = True) -> int:
 
 def _read_tags(path: Path) -> dict:
     info = {"title": None, "artist": None, "track_no": None, "disc_no": None,
-            "duration": None, "bits": None, "sample_rate": None}
+            "duration": None, "bits": None, "sample_rate": None, "isrc": None,
+            "has_art": 0}
     try:
         f = mutagen.File(path, easy=True)
     except Exception:
@@ -299,6 +300,12 @@ def _read_tags(path: Path) -> dict:
         bits=getattr(f.info, "bits_per_sample", None),
         sample_rate=getattr(f.info, "sample_rate", None),
     )
+    try:
+        info["isrc"] = tag("isrc")
+    except Exception:  # EasyMP4 has no isrc key
+        pass
+    from .artwork import has_embedded_art
+    info["has_art"] = 1 if has_embedded_art(path) else 0
     return info
 
 
@@ -379,14 +386,15 @@ def scan(artist_folder: str | None = None):
                     t = _read_tags(p)
                     db.run(
                         "INSERT INTO tracks(album_id, path, title, artist, track_no, disc_no, duration, format, "
-                        "bits, sample_rate, size, mtime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                        "bits, sample_rate, size, mtime, isrc, has_art) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                         "ON CONFLICT(path) DO UPDATE SET album_id=excluded.album_id, title=excluded.title, "
                         "artist=excluded.artist, track_no=excluded.track_no, disc_no=excluded.disc_no, "
                         "duration=excluded.duration, format=excluded.format, bits=excluded.bits, "
-                        "sample_rate=excluded.sample_rate, size=excluded.size, mtime=excluded.mtime",
+                        "sample_rate=excluded.sample_rate, size=excluded.size, mtime=excluded.mtime, "
+                        "isrc=excluded.isrc, has_art=excluded.has_art",
                         (album["id"], sp, t["title"] or p.stem, t["artist"], t["track_no"], t["disc_no"],
                          t["duration"], p.suffix.lower().lstrip("."), t["bits"], t["sample_rate"],
-                         st.st_size, st.st_mtime),
+                         st.st_size, st.st_mtime, t["isrc"], t["has_art"]),
                     )
             # albums of this artist whose folder vanished
             for a in db.q("SELECT id, tidal_id FROM albums WHERE artist_id=? AND folder IS NOT NULL", (artist["id"],)):
@@ -480,3 +488,85 @@ def auto_match():
 
 def auto_match_async():
     threading.Thread(target=auto_match, daemon=True).start()
+
+
+# --------------------------------------------------------------- deleting
+
+def _remove_file(path: Path) -> int:
+    root = music_dir().resolve()
+    p = path.resolve()
+    if not p.is_relative_to(root) or p == root or not p.is_file():
+        return 0
+    size = p.stat().st_size
+    p.unlink()
+    return size
+
+
+def _prune_dirs(folder: Path, stop_at: Path):
+    """Remove folder and empty parents up to (not including) stop_at.
+    Leftover artwork and macOS metadata files don't keep a folder alive."""
+    junk = {"cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "album.jpg", "artist.jpg", ".ds_store"}
+    folder, stop_at = folder.resolve(), stop_at.resolve()
+    while folder != stop_at and folder.is_relative_to(stop_at) and folder.is_dir():
+        entries = list(folder.iterdir())
+        if any(e.is_dir() or (e.name.lower() not in junk and not e.name.startswith("._")) for e in entries):
+            return
+        for e in entries:
+            e.unlink(missing_ok=True)
+        folder.rmdir()
+        folder = folder.parent
+
+
+def delete_tracks(track_ids: list[int], files: bool = True) -> dict:
+    freed, n, albums = 0, 0, set()
+    for tid in track_ids:
+        t = db.one("SELECT * FROM tracks WHERE id=?", (tid,))
+        if not t:
+            continue
+        if files:
+            try:
+                freed += _remove_file(Path(t["path"]))
+            except OSError as e:
+                raise PermissionError(f"{t['path']}: {e.strerror}") from e
+            _prune_dirs(Path(t["path"]).parent, music_dir())
+        db.run("DELETE FROM tracks WHERE id=?", (tid,))
+        albums.add(t["album_id"])
+        n += 1
+    for aid in albums:
+        db.run("UPDATE albums SET track_files=(SELECT COUNT(*) FROM tracks WHERE album_id=?), monitored=0 WHERE id=?", (aid, aid))
+        a = db.one("SELECT * FROM albums WHERE id=?", (aid,))
+        if a and not a["track_files"]:
+            if a["tidal_id"]:
+                db.run("UPDATE albums SET folder=NULL WHERE id=?", (aid,))
+            else:
+                db.run("DELETE FROM albums WHERE id=?", (aid,))
+    return {"tracks": n, "freed": freed}
+
+
+def delete_album(album_id: int, files: bool = True) -> dict:
+    a = db.one("SELECT * FROM albums WHERE id=?", (album_id,))
+    if not a:
+        return {"tracks": 0, "freed": 0}
+    db.run("DELETE FROM queue WHERE album_id=? AND status='queued'", (album_id,))
+    ids = [r["id"] for r in db.q("SELECT id FROM tracks WHERE album_id=?", (album_id,))]
+    res = delete_tracks(ids, files)
+    if files and a["folder"] and "/" in a["folder"]:
+        _prune_dirs(music_dir() / a["folder"], music_dir())
+    db.run("UPDATE albums SET monitored=0 WHERE id=?", (album_id,))
+    return res
+
+
+def delete_artist(artist_id: int, files: bool = True) -> dict:
+    a = db.one("SELECT * FROM artists WHERE id=?", (artist_id,))
+    if not a:
+        return {"tracks": 0, "freed": 0}
+    total = {"tracks": 0, "freed": 0}
+    for al in db.q("SELECT id FROM albums WHERE artist_id=?", (artist_id,)):
+        r = delete_album(al["id"], files)
+        total["tracks"] += r["tracks"]
+        total["freed"] += r["freed"]
+    if files:
+        _prune_dirs(music_dir() / a["folder"], music_dir())
+    db.run("DELETE FROM queue WHERE status='queued' AND album_id IN (SELECT id FROM albums WHERE artist_id=?)", (artist_id,))
+    db.run("DELETE FROM artists WHERE id=?", (artist_id,))
+    return total

@@ -30,7 +30,7 @@ img { display: block; }
 .menu-btn { display: none; background: none; border: 0; font-size: 22px; cursor: pointer; }
 
 .sidebar { position: fixed; top: var(--topbar); bottom: 0; left: 0; width: var(--sidebar); background: var(--panel); border-right: 1px solid var(--border); padding: 10px 0; display: flex; flex-direction: column; z-index: 15; }
-.sidebar a { display: flex; align-items: center; gap: 12px; padding: 10px 20px; color: var(--muted); border-left: 3px solid transparent; }
+.sidebar a { display: flex; align-items: center; gap: 12px; padding: 11px 22px; color: var(--muted); border-left: 3px solid transparent; }
 .sidebar a b { font-weight: 500; flex: 1; }
 .sidebar a:hover { color: var(--text); background: var(--panel-2); }
 .sidebar a.active { color: var(--text); border-left-color: var(--accent); background: var(--panel-2); }
@@ -152,3 +152,41 @@ pre.log { background: #0b0d12; border: 1px solid var(--border); border-radius: 8
   .form-row .help { grid-column: 1; }
   table.list .hide-sm { display: none; }
 }
+
+/* line icons (Lucide-style: 24px grid, 2px stroke) */
+.ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.ico .fill { fill: currentColor; stroke: none; }
+.menu-btn .ico { width: 22px; height: 22px; }
+.card .badges .badge.dark { font-size: 10px; }
+
+/* collapsible sidebar */
+.sidebar a .ico { flex: none; width: 20px; height: 20px; }
+.sidebar a { position: relative; }
+.collapse-btn { background: none; border: 0; border-top: 1px solid var(--border); color: var(--muted); padding: 10px 22px; text-align: left; cursor: pointer; }
+.collapse-btn:hover { color: var(--text); }
+.collapse-btn .ico { transition: transform .2s; }
+.sidebar, main, .player { transition: width .2s, margin-left .2s, left .2s; }
+body.collapsed { --sidebar: 64px; }
+body.collapsed .sidebar a b, body.collapsed .sidebar-foot { display: none; }
+body.collapsed .sidebar a { justify-content: center; padding: 12px 0; }
+body.collapsed .sidebar .count { position: absolute; top: 5px; right: 8px; font-size: 10px; padding: 0 5px; }
+body.collapsed .collapse-btn { text-align: center; padding: 10px 0; }
+body.collapsed .collapse-btn .ico { transform: rotate(180deg); }
+body.collapsed .logo { width: auto; }
+@media (max-width: 800px) {
+  .collapse-btn { display: none; }
+  body.collapsed { --sidebar: 210px; }
+  body.collapsed .sidebar a b, body.collapsed .sidebar-foot { display: initial; }
+  body.collapsed .sidebar a { justify-content: flex-start; padding: 11px 22px; }
+}
+
+.fs-row { padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.fs-row:last-child { border-bottom: 0; }
+.fs-row:hover { background: var(--panel-2); }
+
+.ctx-menu { position: fixed; z-index: 70; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px; min-width: 170px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); display: flex; flex-direction: column; }
+.ctx-menu[hidden] { display: none; }
+.ctx-menu button { background: none; border: 0; text-align: left; padding: 8px 12px; border-radius: 6px; cursor: pointer; color: var(--text); }
+.ctx-menu button:hover { background: var(--panel); }
+.ctx-menu button.danger { color: var(--err); }
+textarea:focus { outline: none; border-color: var(--accent) !important; }

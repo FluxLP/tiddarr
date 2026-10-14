@@ -17,6 +17,9 @@ dependencies = [
     "requests>=2.31",
 ]
 
+[project.optional-dependencies]
+youtube = ["ytmusicapi>=1.8"]
+
 [project.scripts]
 tiddarr = "tiddarr.app:main"
 

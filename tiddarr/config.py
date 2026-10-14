@@ -42,6 +42,11 @@ DEFAULT_SETTINGS = {
     "refresh_hours": "12",
     "scan_hours": "6",
     "threads": "4",
+    "embed_artwork": "1",
+    "folder_artwork": "1",
+    "chart_countries": "world,at,de",
+    "chart_types": "song,album,artist",
+    "chart_size": "50",
     "jellyfin_url": "",
     "jellyfin_api_key": "",
 }

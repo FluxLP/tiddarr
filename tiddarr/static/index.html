@@ -9,27 +9,30 @@
 </head>
 <body>
 <header class="topbar">
-  <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+  <button class="menu-btn" id="menuBtn" aria-label="Menu"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   <a class="logo" href="#/artists"><img src="/static/icon.svg" alt=""> Tiddarr</a>
   <form class="top-search" id="topSearch">
     <input type="search" id="topSearchInput" data-i18n-placeholder="search_placeholder" autocomplete="off">
   </form>
 </header>
 <nav class="sidebar" id="sidebar">
-  <a href="#/artists" data-nav="artists"><span>🎤</span><b data-i18n="nav_artists"></b></a>
-  <a href="#/albums" data-nav="albums"><span>💿</span><b data-i18n="nav_albums"></b></a>
-  <a href="#/tracks" data-nav="tracks"><span>🎵</span><b data-i18n="nav_tracks"></b></a>
-  <a href="#/add" data-nav="add"><span>➕</span><b data-i18n="nav_add"></b></a>
-  <a href="#/wanted" data-nav="wanted"><span>⚠️</span><b data-i18n="nav_wanted"></b><i class="count" id="wantedCount"></i></a>
-  <a href="#/activity" data-nav="activity"><span>⬇️</span><b data-i18n="nav_activity"></b><i class="count" id="queueCount"></i></a>
-  <a href="#/settings" data-nav="settings"><span>⚙️</span><b data-i18n="nav_settings"></b></a>
+  <a href="#/artists" data-nav="artists"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><b data-i18n="nav_artists"></b></a>
+  <a href="#/albums" data-nav="albums"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/></svg><b data-i18n="nav_albums"></b></a>
+  <a href="#/tracks" data-nav="tracks"><svg class="ico" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg><b data-i18n="nav_tracks"></b></a>
+  <a href="#/playlists" data-nav="playlists"><svg class="ico" viewBox="0 0 24 24"><path d="M3 6h12M3 12h12M3 18h7"/><path d="M19 9v9"/><circle cx="17" cy="18" r="2"/></svg><b data-i18n="nav_playlists"></b></a>
+  <a href="#/add" data-nav="add"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M11 8v6M8 11h6"/></svg><b data-i18n="nav_add"></b></a>
+  <a href="#/discover" data-nav="discover"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></svg><b data-i18n="nav_discover"></b></a>
+  <a href="#/wanted" data-nav="wanted"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg><b data-i18n="nav_wanted"></b><i class="count" id="wantedCount"></i></a>
+  <a href="#/activity" data-nav="activity"><svg class="ico" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><b data-i18n="nav_activity"></b><i class="count" id="queueCount"></i></a>
+  <a href="#/settings" data-nav="settings"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><b data-i18n="nav_settings"></b></a>
   <div class="sidebar-foot" id="sidebarFoot"></div>
+  <button class="collapse-btn" id="collapseBtn" aria-label="Collapse sidebar"><svg class="ico" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
 </nav>
 <main id="main"></main>
 <div class="player" id="player" hidden>
   <div class="player-info"><b id="playerTitle"></b><span id="playerSub"></span></div>
   <audio id="audio" controls></audio>
-  <button class="icon-btn" id="playerClose" aria-label="Close">✕</button>
+  <button class="icon-btn" id="playerClose" aria-label="Close"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
 </div>
 <div class="modal-bg" id="modal" hidden><div class="modal" id="modalBody"></div></div>
 <div class="toasts" id="toasts"></div>

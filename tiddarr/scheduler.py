@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 
-from . import db, downloader, library
+from . import artwork, db, downloader, library, playlists
 from .tidal import TidalError, tidal
 
 log = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ def refresh_monitored(artist_ids: list[int] | None = None):
                 log.warning("refresh artist %s: %s", aid, e)
             time.sleep(0.5)
         search_missing()
+        playlists.sync_monitored()
     finally:
         state["refreshing"] = False
         state["last_refresh"] = time.time()
@@ -66,6 +67,9 @@ def loop():
             if scan_h and now - state["last_scan"] > scan_h * 3600:
                 state["last_scan"] = now
                 library.scan()
+                for album_id in artwork.pending_albums():
+                    artwork.apply_album_art(album_id)
+                playlists.refresh_m3u_all()
             if refresh_h and now - state["last_refresh"] > refresh_h * 3600:
                 refresh_monitored()
         except Exception:

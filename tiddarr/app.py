@@ -1,11 +1,12 @@
 import hmac
+import os
 import logging
 import threading
 from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 
-from . import __version__, config, db, downloader, library, scheduler
+from . import __version__, artwork, config, db, downloader, library, metadata, playlists, scheduler, services, suggest
 from .tidal import TidalError, image, tidal
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,14 @@ def basic_auth():
 @app.errorhandler(TidalError)
 def tidal_error(e: TidalError):
     return jsonify(error=str(e), status=e.status, sub_status=e.sub_status), 502 if e.status != 401 else 401
+
+
+def album_cover(al: dict, size: int = 320) -> str | None:
+    """Tidal cover if known, else the artwork found on disk."""
+    url = image(al.get("cover"), size)
+    if not url and al.get("folder") and al.get("track_files"):
+        url = f"/api/albums/{al['id']}/cover"
+    return url
 
 
 def body() -> dict:
@@ -70,6 +79,7 @@ def status():
         missing=len(scheduler.missing_albums()),
         scan=library.scan_state,
         match=library.match_state,
+        artwork=metadata.task_state,
         refreshing=scheduler.state["refreshing"],
     )
 
@@ -87,6 +97,28 @@ def put_settings():
         if key in config.DEFAULT_SETTINGS:
             db.set_setting(key, value)
     return get_settings()
+
+
+@app.get("/api/fs")
+def browse():
+    """Directory listing for the folder picker in the settings."""
+    path = Path(request.args.get("path") or "/").resolve()
+    if not path.is_dir():
+        path = Path("/")
+    dirs = []
+    try:
+        for p in sorted(path.iterdir(), key=lambda p: p.name.lower()):
+            try:
+                if p.is_dir() and not p.name.startswith("."):
+                    dirs.append(p.name)
+            except OSError:
+                continue
+    except OSError as e:
+        return jsonify(path=str(path), parent=str(path.parent), dirs=[], error=str(e))
+    return jsonify(
+        path=str(path), parent=str(path.parent) if path != path.parent else None,
+        dirs=dirs, writable=os.access(path, os.W_OK),
+    )
 
 
 # -------------------------------------------------------------------- auth
@@ -190,13 +222,18 @@ SELECT ar.*,
   (SELECT COUNT(*) FROM albums al WHERE al.artist_id=ar.id AND al.hidden=0 AND (al.monitored=1 OR al.track_files>0)) AS albums_wanted,
   (SELECT COUNT(*) FROM tracks t JOIN albums al ON al.id=t.album_id WHERE al.artist_id=ar.id) AS tracks,
   (SELECT COALESCE(SUM(t.size),0) FROM tracks t JOIN albums al ON al.id=t.album_id WHERE al.artist_id=ar.id) AS size,
-  (SELECT al.cover FROM albums al WHERE al.artist_id=ar.id AND al.cover IS NOT NULL ORDER BY al.track_files>0 DESC, al.release_date DESC LIMIT 1) AS any_cover
+  (SELECT al.cover FROM albums al WHERE al.artist_id=ar.id AND al.cover IS NOT NULL ORDER BY al.track_files>0 DESC, al.release_date DESC LIMIT 1) AS any_cover,
+  (SELECT al.id FROM albums al WHERE al.artist_id=ar.id AND al.track_files>0 AND al.folder IS NOT NULL ORDER BY al.release_date DESC LIMIT 1) AS local_album
 FROM artists ar
 """
 
 
 def _artist_row(a: dict) -> dict:
-    a["picture_url"] = image(a.get("picture"), 320) or image(a.get("any_cover"), 320)
+    a["picture_url"] = (
+        image(a.get("picture"), 320)
+        or image(a.get("any_cover"), 320)
+        or (f"/api/albums/{a['local_album']}/cover" if a.get("local_album") else None)
+    )
     return a
 
 
@@ -237,7 +274,7 @@ def artist(artist_id):
         (artist_id,),
     )
     for al in albums:
-        al["cover_url"] = image(al["cover"], 320)
+        al["cover_url"] = album_cover(al)
         al["full_title"] = library.full_title(al)
     return jsonify(artist=_artist_row(a), albums=albums)
 
@@ -288,6 +325,29 @@ def artist_search_missing(artist_id):
     return jsonify(queued=n)
 
 
+def _delete(fn, *args):
+    try:
+        return jsonify(fn(*args, files=request.args.get("files") == "1"))
+    except PermissionError as e:
+        return jsonify(error=f"Permission denied: {e}"), 403
+
+
+@app.delete("/api/artists/<int:artist_id>/library")
+def delete_artist_library(artist_id):
+    """Remove an artist from the library, optionally with all files."""
+    return _delete(library.delete_artist, artist_id)
+
+
+@app.delete("/api/albums/<int:album_id>")
+def delete_album(album_id):
+    return _delete(library.delete_album, album_id)
+
+
+@app.delete("/api/tracks/<int:track_id>")
+def delete_track(track_id):
+    return _delete(library.delete_tracks, [track_id])
+
+
 @app.delete("/api/artists/<int:artist_id>")
 def delete_artist(artist_id):
     """Stop tracking an artist. Files on disk are never deleted."""
@@ -306,7 +366,7 @@ def albums():
         "WHERE al.track_files>0 ORDER BY ar.name COLLATE NOCASE, al.release_date"
     )
     for al in rows:
-        al["cover_url"] = image(al["cover"], 320)
+        al["cover_url"] = album_cover(al)
         al["full_title"] = library.full_title(al)
     return jsonify(rows)
 
@@ -329,7 +389,7 @@ def album(album_id):
     )
     if not a:
         abort(404)
-    a["cover_url"] = image(a["cover"], 640)
+    a["cover_url"] = album_cover(a, 640)
     a["full_title"] = library.full_title(a)
     tracks = db.q(
         "SELECT id, title, artist, track_no, disc_no, duration, format, bits, sample_rate, size, path "
@@ -365,6 +425,44 @@ def update_album(album_id):
     return jsonify(db.one("SELECT * FROM albums WHERE id=?", (album_id,)))
 
 
+@app.get("/api/albums/<int:album_id>/cover")
+def album_cover_file(album_id):
+    a = db.one("SELECT * FROM albums WHERE id=?", (album_id,))
+    art = artwork.album_art_bytes(a) if a else None
+    if not art:
+        abort(404)
+    res = Response(art[0], mimetype=art[1])
+    res.headers["Cache-Control"] = "max-age=3600"
+    return res
+
+
+@app.get("/api/albums/<int:album_id>/identify")
+def identify_candidates(album_id):
+    if not db.one("SELECT 1 FROM albums WHERE id=?", (album_id,)):
+        abort(404)
+    return jsonify(metadata.candidates(album_id, request.args.get("artist"), request.args.get("album")))
+
+
+@app.post("/api/albums/<int:album_id>/identify")
+def identify_apply(album_id):
+    b = body()
+    try:
+        res = metadata.apply_match(
+            album_id, int(b["tidal_id"]),
+            write_tags=bool(b.get("write_tags", True)),
+            embed_cover=bool(b.get("embed_cover", True)),
+            rename=bool(b.get("rename", False)),
+        )
+    except ValueError as e:
+        return jsonify(error=str(e)), 409
+    return jsonify(res)
+
+
+@app.post("/api/albums/<int:album_id>/artwork")
+def album_artwork(album_id):
+    return jsonify(artwork.apply_album_art(album_id, force=bool(body().get("force"))))
+
+
 @app.post("/api/albums/<int:album_id>/download")
 def download_album(album_id):
     job = downloader.enqueue_album(album_id)
@@ -387,13 +485,15 @@ def tracks():
     )["n"]
     rows = db.q(
         "SELECT t.id, t.title, t.artist, t.track_no, t.duration, t.format, t.bits, t.sample_rate, "
-        "al.id AS album_id, al.title AS album, al.cover, ar.id AS artist_id, ar.name AS artist_name "
+        "al.id AS album_id, al.title AS album, al.cover, al.folder, al.track_files, ar.id AS artist_id, ar.name AS artist_name "
         f"FROM tracks t JOIN albums al ON al.id=t.album_id JOIN artists ar ON ar.id=al.artist_id {where} "
         "ORDER BY ar.name COLLATE NOCASE, al.release_date, al.title, t.disc_no, t.track_no LIMIT ? OFFSET ?",
         params + [limit, offset],
     )
     for r in rows:
-        r["cover_url"] = image(r.pop("cover"), 160)
+        r["cover_url"] = album_cover({**r, "id": r["album_id"]}, 160)
+        for k in ("cover", "folder", "track_files"):
+            r.pop(k)
     return jsonify(total=total, items=rows)
 
 
@@ -418,7 +518,7 @@ def download_track():
 def wanted():
     rows = scheduler.missing_albums()
     for al in rows:
-        al["cover_url"] = image(al["cover"], 160)
+        al["cover_url"] = album_cover(al, 160)
         al["full_title"] = library.full_title(al)
         al["queue_status"] = (db.one("SELECT status FROM queue WHERE album_id=? ORDER BY id DESC LIMIT 1", (al["id"],)) or {}).get("status")
     return jsonify(rows)
@@ -435,6 +535,204 @@ def unmatched():
     return jsonify([_artist_row(a) for a in rows])
 
 
+# ------------------------------------------------------------- suggestions
+
+@app.get("/api/suggest/sources")
+def suggest_sources():
+    lang = "de" if (request.accept_languages.best_match(["de", "en"]) == "de") else "en"
+    countries = suggest.chart_countries(lang)
+    enabled = [c for c in db.get_setting("chart_countries").split(",") if any(x["code"] == c for x in countries)]
+    types = [k for k in db.get_setting("chart_types").split(",") if k in suggest.CHART_TYPES]
+    return jsonify(countries=countries, enabled=enabled, types=types)
+
+
+@app.get("/api/suggest/for-you")
+def suggest_for_you():
+    return jsonify(suggest.for_you())
+
+
+@app.get("/api/suggest/charts")
+def suggest_charts():
+    try:
+        return jsonify(suggest.chart(request.args.get("country", ""), request.args.get("kind", "song")))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        return jsonify(error=f"Chart source unavailable: {e}"), 502
+
+
+@app.get("/api/suggest/new")
+def suggest_new():
+    return jsonify(suggest.new_on_tidal())
+
+
+@app.post("/api/suggest/download")
+def suggest_download():
+    b = body()
+    try:
+        return jsonify(suggest.download(b.get("kind", "track"), b.get("artist", ""), b.get("title", ""), b.get("tidal_id")))
+    except LookupError as e:
+        return jsonify(error=str(e)), 404
+
+
+# --------------------------------------------------------------- playlists
+
+@app.errorhandler(services.ServiceError)
+def service_error(e):
+    return jsonify(error=str(e)), 502
+
+
+@app.get("/api/services")
+def services_list():
+    return jsonify([
+        {"id": s.id, "name": s.name, "can_search": s.can_search, **s.info()}
+        for s in services.SERVICES.values()
+    ])
+
+
+@app.post("/api/services/<sid>/connect")
+def service_connect(sid):
+    b = body()
+    svc = services.get(sid)
+    if sid == "spotify":
+        if b.get("callback"):
+            svc.finish(b["callback"])
+            return jsonify(svc.info())
+        redirect = (b.get("redirect_uri") or "").strip() or "http://127.0.0.1:8888/callback"
+        return jsonify(url=svc.auth_url(b["client_id"].strip(), redirect))
+    if sid == "deezer":
+        svc.connect(b.get("value", ""))
+    elif sid == "youtube":
+        if not svc.available():
+            return jsonify(error="ytmusicapi is not installed on the server"), 400
+        svc.connect(b.get("headers", ""))
+    else:
+        return jsonify(error="nothing to connect"), 400
+    return jsonify(svc.info())
+
+
+@app.get("/api/connect/spotify/callback")
+def spotify_callback():
+    """Direct redirect target when Tiddarr is reachable via https/loopback."""
+    try:
+        services.get("spotify").finish(request.url)
+    except services.ServiceError as e:
+        return f"Spotify login failed: {e}", 400
+    return Response('<meta http-equiv="refresh" content="0;url=/#/settings">Spotify connected.', mimetype="text/html")
+
+
+@app.post("/api/services/<sid>/disconnect")
+def service_disconnect(sid):
+    svc = services.get(sid)
+    if hasattr(svc, "disconnect"):
+        svc.disconnect()
+    return jsonify(ok=True)
+
+
+@app.get("/api/services/<sid>/playlists")
+def service_playlists(sid):
+    svc = services.get(sid)
+    if not svc.connected():
+        return jsonify(error="not connected"), 400
+    saved = {(r["service"], r["remote_id"]): r for r in db.q("SELECT * FROM playlists")}
+    out = svc.my_playlists()
+    for p in out:
+        r = saved.get((sid, p["id"]))
+        p["saved_id"], p["monitored"] = (r["id"], bool(r["monitored"])) if r else (None, False)
+    return jsonify(out)
+
+
+@app.get("/api/services/<sid>/search")
+def service_search(sid):
+    return jsonify(services.get(sid).search(request.args.get("q", "")))
+
+
+@app.get("/api/services/<sid>/playlist")
+def service_playlist(sid):
+    ref = request.args.get("id", "")
+    pl = services.get(sid).playlist(ref)
+    pl["tracks"] = playlists.mark_owned(pl["tracks"])
+    saved = db.one("SELECT * FROM playlists WHERE service=? AND remote_id=?", (sid, pl["id"]))
+    pl["saved_id"] = saved["id"] if saved else None
+    pl["monitored"] = bool(saved and saved["monitored"])
+    return jsonify(pl)
+
+
+@app.post("/api/services/<sid>/playlist/download")
+def service_playlist_download(sid):
+    """Save the playlist, then match and queue every missing song."""
+    b = body()
+    ref = b["id"]
+    remote = services.get(sid).playlist(ref)
+    pl_id = playlists.save(sid, {**remote, "url": remote.get("url") or (ref if sid == "apple" else None)}, bool(b.get("monitor")))
+    playlists._store_tracks(pl_id, remote["tracks"])
+    playlists.sync_async(pl_id)
+    return jsonify(id=pl_id)
+
+
+@app.post("/api/playlist-track/download")
+def playlist_track_download():
+    try:
+        return jsonify(playlists.download_track(body()))
+    except LookupError as e:
+        return jsonify(error=str(e)), 404
+
+
+@app.post("/api/import/text")
+def import_text():
+    b = body()
+    tracks = services.parse_text(b.get("text", ""))
+    if not tracks:
+        return jsonify(error="No songs recognized. Use a CSV export or one 'Artist - Title' per line."), 400
+    name = (b.get("name") or "Import").strip()
+    pl_id = playlists.import_tracks("file", f"{name}-{int(__import__('time').time())}", name, tracks)
+    playlists.sync_async(pl_id)
+    return jsonify(id=pl_id, tracks=len(tracks))
+
+
+@app.get("/api/playlists")
+def saved_playlists():
+    rows = db.q(
+        "SELECT p.*, (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id) AS count, "
+        "(SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.state='owned') AS owned, "
+        "(SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id AND t.state='notfound') AS notfound "
+        "FROM playlists p ORDER BY p.name COLLATE NOCASE"
+    )
+    for r in rows:
+        r["sync"] = playlists.sync_state.get(r["id"])
+    return jsonify(rows)
+
+
+@app.get("/api/playlists/<int:pl_id>")
+def saved_playlist(pl_id):
+    pl = db.one("SELECT * FROM playlists WHERE id=?", (pl_id,))
+    if not pl:
+        abort(404)
+    tracks = playlists.mark_owned(db.q("SELECT * FROM playlist_tracks WHERE playlist_id=? ORDER BY pos", (pl_id,)))
+    return jsonify(playlist=pl, tracks=tracks, sync=playlists.sync_state.get(pl_id))
+
+
+@app.put("/api/playlists/<int:pl_id>")
+def update_playlist(pl_id):
+    b = body()
+    for key in ("monitored", "write_m3u"):
+        if key in b:
+            db.run(f"UPDATE playlists SET {key}=? WHERE id=?", (1 if b[key] else 0, pl_id))
+    return jsonify(db.one("SELECT * FROM playlists WHERE id=?", (pl_id,)))
+
+
+@app.post("/api/playlists/<int:pl_id>/sync")
+def sync_playlist(pl_id):
+    playlists.sync_async(pl_id)
+    return jsonify(ok=True)
+
+
+@app.delete("/api/playlists/<int:pl_id>")
+def delete_playlist(pl_id):
+    db.run("DELETE FROM playlists WHERE id=?", (pl_id,))
+    return jsonify(ok=True)
+
+
 # ------------------------------------------------------------------- tasks
 
 @app.post("/api/tasks/scan")
@@ -446,6 +744,12 @@ def task_scan():
 @app.post("/api/tasks/match")
 def task_match():
     library.auto_match_async()
+    return jsonify(ok=True)
+
+
+@app.post("/api/tasks/artwork")
+def task_artwork():
+    metadata.identify_all_async()
     return jsonify(ok=True)
 
 

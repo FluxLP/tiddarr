@@ -24,6 +24,27 @@ automatically. Monitored artists are checked for new releases on a schedule.
   Albums that already exist on disk keep their folder.
 - **Imports existing libraries** – scans your music folder and links artist
   folders to Tidal artists by name (without monitoring anything).
+- **Artwork** – embeds missing covers into FLAC/MP3/M4A files and writes
+  `cover.jpg` (album) and `folder.jpg` (artist), so Apple Music/iTunes,
+  Music Assistant, Jellyfin, Plex and Kodi all show them.
+- **Match albums** – identifies albums on disk with Tidal releases via ISRC
+  (exact song IDs in your files) or artist/title. Albums that are not
+  recognized can be matched by hand (like Audiobookshelf): search, pick a
+  release, and Tiddarr writes tags, embeds the cover and optionally renames
+  folder and files.
+- **Discover** – suggestions learned from your library (missing albums of
+  artists you listen to, new releases, similar artists, popular songs you
+  don't have), charts from your linked accounts (songs, albums, artists per
+  country and worldwide) and new releases on Tidal. One click downloads.
+- **Playlists & import** – browse your playlists on Tidal, Spotify, Deezer
+  and YouTube Music, search public playlists, open shared Apple Music links
+  or import CSV/text lists (e.g. Amazon Music via TuneMyMusic). Download
+  whole playlists or single songs; songs are matched to Tidal by ISRC or
+  artist/title/length. Monitored playlists stay in sync and get an `.m3u8`
+  file in `<music>/_Playlists`.
+- **Delete** artists, albums or songs (right-click or button), optionally
+  including the files on disk.
+- Collapsible sidebar, folder picker for the music folder.
 - Deduplicates Tidal's many versions of the same release (explicit/clean,
   stereo/hi-res …) and shows only the best one.
 - Optional Jellyfin library refresh after downloads.
@@ -84,6 +105,21 @@ Browser ──► Flask API ──► SQLite (artists, albums, tracks, queue)
                 ├─ worker: `tiddl download … --output <Lidarr template> url …`
                 └─ scanner: walks the music folder, reads tags with mutagen
 ```
+
+Charts come from your linked accounts only: Tidal's editorial "Top" playlists
+and, if Deezer is linked, the Deezer Charts. Album and artist charts of a
+country are derived from its song chart.
+
+### Connecting services
+
+| Service | What works | Needs |
+| --- | --- | --- |
+| Tidal | own playlists, favourites, public search | Tidal login |
+| Spotify | own playlists, liked songs, public search | free app at developer.spotify.com (Client ID) |
+| Deezer | public playlists/favourites of a profile, search | profile link |
+| YouTube Music | public playlists, search; library with browser headers | `pip install ytmusicapi` |
+| Apple Music | shared playlist links | – |
+| Amazon Music & others | CSV / "Artist - Title" text import | – |
 
 Before every download Tiddarr asks Tidal whether the account may stream the
 track. Without that check, tiddl misreads a *“quality not allowed in

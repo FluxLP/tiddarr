@@ -9,7 +9,7 @@ import time
 
 import requests
 
-from . import db, library
+from . import artwork, db, library
 from .config import TIDDL_BIN
 from .tidal import TidalError, tidal
 
@@ -184,6 +184,9 @@ def _run(job: dict):
         )
     _current.update(job=None, proc=None, cancel=False)
     library.scan(artist["folder"])
+    if album["id"]:
+        artwork.apply_album_art(album["id"])
+        artwork.apply_artist_art(artist["id"])
 
 
 def _notify_jellyfin():
@@ -202,6 +205,9 @@ def worker():
         job = db.one("SELECT * FROM queue WHERE status='queued' ORDER BY id LIMIT 1")
         if not job:
             if did_work:
+                from . import playlists
+
+                playlists.refresh_m3u_all()
                 _notify_jellyfin()
                 did_work = False
             _wake.wait(30)
