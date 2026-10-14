@@ -95,6 +95,7 @@ changed in the web UI. Environment variables:
 | `TIDDARR_USERNAME` / `TIDDARR_PASSWORD` | – | Enable HTTP basic auth |
 | `TIDDL_PATH` | `$TIDDARR_DATA_DIR/tiddl` | tiddl config/auth dir; point to `~/.tiddl` to share the login with the tiddl CLI |
 | `TIDDARR_TIDDL_BIN` | `tiddl` | tiddl executable |
+| `TIDDARR_UMASK` | `000` | umask for downloaded files/folders (`000` = everyone may modify, like most shared libraries) |
 
 ## How it works
 
@@ -117,7 +118,7 @@ country are derived from its song chart.
 | Tidal | own playlists, favourites, public search | Tidal login |
 | Spotify | own playlists, liked songs, public search | free app at developer.spotify.com (Client ID) |
 | Deezer | public playlists/favourites of a profile, search | profile link |
-| YouTube Music | public playlists, search; library with browser headers | `pip install ytmusicapi` |
+| YouTube Music | public playlists, search; library with browser headers | – (ytmusicapi is included) |
 | Apple Music | shared playlist links | – |
 | Amazon Music & others | CSV / "Artist - Title" text import | – |
 

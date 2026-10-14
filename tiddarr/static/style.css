@@ -190,3 +190,10 @@ body.collapsed .logo { width: auto; }
 .ctx-menu button:hover { background: var(--panel); }
 .ctx-menu button.danger { color: var(--err); }
 textarea:focus { outline: none; border-color: var(--accent) !important; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 4px 0 20px; overflow-x: auto; }
+.tabs a, .tabs button { padding: 10px 16px; color: var(--muted); border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; cursor: pointer; white-space: nowrap; font-weight: 500; }
+.tabs a:hover, .tabs button:hover { color: var(--text); }
+.tabs a.on, .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+[data-tab][hidden] { display: none; }
+[data-mode][hidden] { display: none; }

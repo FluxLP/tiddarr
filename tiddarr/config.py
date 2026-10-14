@@ -8,6 +8,12 @@ cover what has to be known before the database exists.
 import os
 from pathlib import Path
 
+# Permissions of downloaded files and folders. Music libraries are usually
+# shared with other apps (Jellyfin, SMB clients …), so default to open
+# permissions; set e.g. TIDDARR_UMASK=022 for owner-only write access.
+UMASK = int(os.environ.get("TIDDARR_UMASK", "000"), 8)
+os.umask(UMASK)
+
 DATA_DIR = Path(os.environ.get("TIDDARR_DATA_DIR", Path.home() / ".tiddarr"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

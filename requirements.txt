@@ -3,5 +3,4 @@ flask>=3.0
 waitress>=3.0
 mutagen>=1.47
 requests>=2.31
-# optional: YouTube Music support
-# ytmusicapi>=1.8
+ytmusicapi>=1.8

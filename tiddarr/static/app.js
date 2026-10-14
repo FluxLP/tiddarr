@@ -53,7 +53,7 @@ const STRINGS = {
     artwork_help: "Links artists, identifies albums (ISRC/name) and adds missing covers to files, cover.jpg and artist folder.jpg.",
     embed_artwork: "Embed covers into audio files", folder_artwork: "Write cover.jpg / folder.jpg",
     artwork_settings: "Artwork", step_artists: "Linking artists", step_albums: "Identifying albums", step_artwork: "Adding covers", step_artists_art: "Artist pictures",
-    unmatched_badge: "Not matched", search: "Search",
+    unmatched_badge: "Not matched", search: "Search", tab_accounts: "Accounts",
     nav_discover: "Discover", for_you: "For you", charts: "Charts", new_on_tidal: "New on Tidal",
     sug_complete: "Complete your collection", sug_complete_help: "Albums of artists you listen to a lot that you don't have yet.",
     sug_recent: "New releases of your artists", sug_similar: "Artists you might like", because: "because of",
@@ -61,7 +61,7 @@ const STRINGS = {
     owned: "In library", chart_sources: "Chart countries", chart_size: "Chart length", chart_types: "Chart types", chart_artists: "Artists",
     chart_help: "Charts come from your linked accounts (Tidal, Deezer). Album and artist charts of a country are derived from its song chart.", songs_in_chart: "songs in the chart", best: "best",
     sug_empty: "Not enough data yet. Link your artists with Tidal (Settings → Tasks → Artwork & metadata).",
-    my_playlists: "My playlists", saved_playlists: "Saved & monitored", search_playlists: "Search public playlists", paste_link: "…or paste a playlist link (Tidal, Spotify, Deezer, YouTube Music, Apple Music)",
+    pl_url: "Link", pl_csv: "CSV / list", my_playlists: "My playlists", saved_playlists: "Saved & monitored", search_playlists: "Search public playlists", paste_link: "Playlist link from Tidal, Spotify, Deezer, YouTube Music or Apple Music",
     open: "Open", download_all: "Download all", monitor_playlist: "Download & keep in sync", synced: "Synced", tracks_owned: "in library",
     not_found: "not found", import_list: "Import list / CSV", import_help: "CSV export (Exportify, TuneMyMusic, Soundiiz …) – e.g. from Amazon Music – or one \"Artist - Title\" per line.",
     import_name: "Playlist name", import_go: "Import & download", choose_file: "Choose file", services: "Services & import",
@@ -123,7 +123,7 @@ const STRINGS = {
     artwork_help: "Verknüpft Interpreten, erkennt Alben (ISRC/Name) und ergänzt fehlende Cover in Dateien, cover.jpg und folder.jpg der Interpreten.",
     embed_artwork: "Cover in Audiodateien einbetten", folder_artwork: "cover.jpg / folder.jpg schreiben",
     artwork_settings: "Artwork", step_artists: "Interpreten verknüpfen", step_albums: "Alben erkennen", step_artwork: "Cover ergänzen", step_artists_art: "Interpretenbilder",
-    unmatched_badge: "Nicht zugeordnet", search: "Suchen",
+    unmatched_badge: "Nicht zugeordnet", search: "Suchen", tab_accounts: "Konten",
     nav_discover: "Vorschläge", for_you: "Für dich", charts: "Charts", new_on_tidal: "Neu auf Tidal",
     sug_complete: "Sammlung vervollständigen", sug_complete_help: "Alben von Interpreten, die du viel hörst, die dir noch fehlen.",
     sug_recent: "Neue Releases deiner Interpreten", sug_similar: "Interpreten, die dir gefallen könnten", because: "wegen",
@@ -131,7 +131,7 @@ const STRINGS = {
     owned: "In Bibliothek", chart_sources: "Chart-Länder", chart_size: "Länge der Charts", chart_types: "Chart-Arten", chart_artists: "Interpreten",
     chart_help: "Charts kommen von deinen verknüpften Konten (Tidal, Deezer). Album- und Interpreten-Charts eines Landes werden aus den Song-Charts abgeleitet.", songs_in_chart: "Songs in den Charts", best: "beste",
     sug_empty: "Noch zu wenig Daten. Verknüpfe deine Interpreten mit Tidal (Einstellungen → Aufgaben → Artwork & Metadaten).",
-    my_playlists: "Meine Playlists", saved_playlists: "Gespeichert & überwacht", search_playlists: "Öffentliche Playlists suchen", paste_link: "…oder Playlist-Link einfügen (Tidal, Spotify, Deezer, YouTube Music, Apple Music)",
+    pl_url: "Link", pl_csv: "CSV / Liste", my_playlists: "Meine Playlists", saved_playlists: "Gespeichert & überwacht", search_playlists: "Öffentliche Playlists suchen", paste_link: "Playlist-Link von Tidal, Spotify, Deezer, YouTube Music oder Apple Music",
     open: "Öffnen", download_all: "Alle herunterladen", monitor_playlist: "Laden & synchron halten", synced: "Synchronisiert", tracks_owned: "in Bibliothek",
     not_found: "nicht gefunden", import_list: "Liste / CSV importieren", import_help: "CSV-Export (Exportify, TuneMyMusic, Soundiiz …) – z. B. aus Amazon Music – oder eine Zeile \"Interpret - Titel\" pro Song.",
     import_name: "Name der Playlist", import_go: "Importieren & herunterladen", choose_file: "Datei wählen", services: "Dienste & Import",
@@ -228,7 +228,7 @@ setInterval(refreshStatus, 5000);
 
 function loginBanner() {
   if (!state.status || state.status.logged_in) return "";
-  return `<div class="banner">${esc(t("not_logged_in"))} <a class="btn small primary" href="#/settings">${esc(t("connect"))}</a></div>`;
+  return `<div class="banner">${esc(t("not_logged_in"))} <a class="btn small primary" href="#/settings/accounts">${esc(t("connect"))}</a></div>`;
 }
 
 // ------------------------------------------------------------------ router
@@ -248,7 +248,7 @@ const routes = [
   [/^#\/wanted$/, viewWanted, "wanted"],
   [/^#\/unmatched$/, viewUnmatched, "artists"],
   [/^#\/activity$/, viewActivity, "activity"],
-  [/^#\/settings$/, viewSettings, "settings"],
+  [/^#\/settings(?:\/(\w+))?$/, viewSettings, "settings"],
 ];
 let currentView = 0;
 let viewTimer = null;
@@ -727,21 +727,34 @@ async function viewPlaylists(_, alive) {
   const searchable = svcs.filter((x) => x.can_search && (x.id !== "youtube" || x.available) && (x.id !== "spotify" || x.connected));
   let svc = localStorage.getItem("plService");
   if (!mine.some((x) => x.id === svc)) svc = mine[0] ? mine[0].id : null;
-  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span><a class="btn" href="#/settings">${esc(t("services"))}</a></div>
-    <form class="toolbar" id="plSearch"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
-      <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("search"))}</button></form>
-    <form class="toolbar" id="plLink"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}" style="flex:1;min-width:200px"><button class="btn">${esc(t("open"))}</button></form>
-    <div id="plResults"></div>
+  const mode0 = ["search", "url", "csv"].includes(localStorage.getItem("plMode")) ? localStorage.getItem("plMode") : "search";
+  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span><a class="btn" href="#/settings/accounts">${esc(t("services"))}</a></div>
+    <div class="panel">
+      <div class="tabs" id="plModes" style="margin-top:-6px">${[["search", "search_playlists"], ["url", "pl_url"], ["csv", "pl_csv"]].map(([m, k]) => `<button data-m="${m}">${esc(t(k))}</button>`).join("")}</div>
+      <form class="toolbar" id="plSearch" data-mode="search" style="margin:0"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
+        <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("search"))}</button></form>
+      <form class="toolbar" id="plLink" data-mode="url" style="margin:0"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("open"))}</button></form>
+      <div data-mode="csv"><p class="muted small" style="margin-top:0">${esc(t("import_help"))}</p>
+        <div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"><label class="btn">${esc(t("choose_file"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" hidden></label></div>
+        <textarea id="impText" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
+        <div class="toolbar" style="margin:10px 0 0"><button class="btn primary" id="impGo">${esc(t("import_go"))}</button></div></div>
+      <div id="plResults" style="margin-top:14px"></div>
+    </div>
     ${saved.length ? `<h2>${esc(t("saved_playlists"))}</h2><table class="list">${saved.map((p) => `<tr><td><a href="#/saved/${p.id}">${esc(p.name)}</a><div class="muted small">${esc(SERVICE_NAMES[p.service])}${p.owner ? " · " + esc(p.owner) : ""}</div></td>
       <td class="muted">${p.owned}/${p.count} ${esc(t("tracks_owned"))}${p.notfound ? ` · ${p.notfound} ${esc(t("not_found"))}` : ""}</td>
       <td>${p.sync && p.sync.running ? `<span class="spinner"></span> ${p.sync.done}/${p.sync.total}` : p.monitored ? `<span class="badge ok">${esc(t("monitored"))}</span>` : ""}</td></tr>`).join("")}</table>` : ""}
     <div class="toolbar" style="margin-top:28px"><h2 style="margin:0">${esc(t("my_playlists"))}</h2><span class="spacer"></span>
       ${mine.length ? `<div class="seg" id="plMine">${mine.map((x) => `<button data-s="${x.id}" class="${x.id === svc ? "on" : ""}">${esc(x.name)}</button>`).join("")}</div>` : ""}</div>
-    <div id="plMineList">${svc ? `<span class="spinner"></span>` : `<div class="empty"><a href="#/settings">${esc(t("services"))}</a></div>`}</div>
-    <h2>${esc(t("import_list"))}</h2><div class="panel"><p class="muted small" style="margin-top:0">${esc(t("import_help"))}</p>
-      <div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"><label class="btn">${esc(t("choose_file"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" hidden></label></div>
-      <textarea id="impText" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
-      <div class="toolbar" style="margin:10px 0 0"><button class="btn primary" id="impGo">${esc(t("import_go"))}</button></div></div>`;
+    <div id="plMineList">${svc ? `<span class="spinner"></span>` : `<div class="empty"><a href="#/settings/accounts">${esc(t("services"))}</a></div>`}</div>`;
+
+  const setMode = (m) => {
+    localStorage.setItem("plMode", m);
+    $("#plModes").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
+    main.querySelectorAll("[data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== m));
+    $("#plResults").innerHTML = "";
+  };
+  $("#plModes").onclick = (e) => { if (e.target.dataset.m) setMode(e.target.dataset.m); };
+  setMode(mode0);
 
   const loadMine = async () => {
     if (!svc) return;
@@ -899,10 +912,10 @@ async function viewDiscover(tab, alive) {
     let kind = localStorage.getItem("chartKind");
     if (!src.types.includes(kind)) kind = src.types[0];
     const typeLabel2 = { song: t("chart_songs"), album: t("chart_albums"), artist: t("chart_artists") };
-    if (!country || !kind) { box.innerHTML = `<div class="empty"><a href="#/settings">${esc(t("chart_sources"))} →</a></div>`; return; }
+    if (!country || !kind) { box.innerHTML = `<div class="empty"><a href="#/settings/library">${esc(t("chart_sources"))} →</a></div>`; return; }
     box.innerHTML = `<div class="toolbar"><select id="chSrc">${countries.map((c) => `<option value="${c.code}" ${c.code === country ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
       <div class="seg" id="chKind">${src.types.map((k) => `<button data-k="${k}">${esc(typeLabel2[k])}</button>`).join("")}</div>
-      <span class="spacer"></span><span class="muted small" id="chProv"></span><a class="muted small" href="#/settings">${esc(t("chart_sources"))} →</a></div><div id="chList"></div>`;
+      <span class="spacer"></span><span class="muted small" id="chProv"></span><a class="muted small" href="#/settings/library">${esc(t("chart_sources"))} →</a></div><div id="chList"></div>`;
     const load = async () => {
       $("#chKind").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.k === kind));
       $("#chList").innerHTML = `<span class="spinner"></span>`;
@@ -1041,14 +1054,20 @@ function folderDialog(start, onPick) {
 
 // ---------------------------------------------------------------- settings
 
-async function viewSettings(_, alive) {
+const SETTINGS_TABS = [["accounts", "tab_accounts"], ["library", "library"], ["tasks", "tasks"]];
+
+async function viewSettings(tab, alive) {
+  if (!SETTINGS_TABS.some(([id]) => id === tab)) tab = "accounts";
   const [s, acc] = await Promise.all([api("/settings"), api("/auth")]);
   if (!alive()) return;
   const types = s.album_types.split(",");
   main.innerHTML = `<div class="toolbar"><h1>${esc(t("nav_settings"))}</h1></div>
+    <div class="tabs">${SETTINGS_TABS.map(([id, k]) => `<a href="#/settings/${id}" class="${id === tab ? "on" : ""}">${esc(t(k))}</a>`).join("")}</div>
+    <div data-tab="accounts" ${tab === "accounts" ? "" : "hidden"}>
     <div class="panel"><h3>${esc(t("tidal_account"))}</h3><div id="account"></div></div>
     <div class="panel" id="servicesPanel"><h3>${esc(t("services"))}</h3><div id="services"><span class="spinner"></span></div></div>
-    <form class="panel" id="settingsForm"><h3>${esc(t("library"))}</h3>
+    </div>
+    <form class="panel" id="settingsForm" data-tab="library" ${tab === "library" ? "" : "hidden"}><h3>${esc(t("library"))}</h3>
       <div class="form-row"><label>${esc(t("music_dir"))}</label><div class="toolbar" style="margin:0;flex-wrap:nowrap"><input type="text" name="music_dir" id="musicDir" value="${esc(s.music_dir)}" style="flex:1;min-width:0"><button type="button" class="btn" id="browseBtn">${esc(t("browse"))}</button></div>
         <div class="help">${esc(t("music_dir_help"))}${s.music_dir_exists ? "" : ` <b style="color:var(--err)">${esc(t("folder_missing"))}</b>`}</div></div>
       <div class="form-row"><label>${esc(t("quality"))}</label><select name="quality">
@@ -1071,7 +1090,7 @@ async function viewSettings(_, alive) {
       <div class="form-row"><label>${esc(t("jellyfin_key"))}</label><input type="password" name="jellyfin_api_key" value="${esc(s.jellyfin_api_key)}"><div class="help">${esc(t("jellyfin_help"))}</div></div>
       <div class="toolbar" style="margin:12px 0 0"><button class="btn primary">${esc(t("save"))}</button></div>
     </form>
-    <div class="panel"><h3>${esc(t("tasks"))}</h3><div id="tasks"></div></div>`;
+    <div class="panel" data-tab="tasks" ${tab === "tasks" ? "" : "hidden"}><h3>${esc(t("tasks"))}</h3><div id="tasks"></div></div>`;
 
   $("#settingsForm").onsubmit = async (e) => {
     e.preventDefault();

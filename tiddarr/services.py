@@ -368,6 +368,38 @@ class YouTubeService:
                 "image": ((p.get("thumbnails") or [{}])[-1] or {}).get("url"), "count": p.get("count") or p.get("itemCount"),
                 "url": f"https://music.youtube.com/playlist?list={pid}"}
 
+    # "(Official Video)", "[Lyrics]", "(HD)", "| Audio" … in uploaded videos
+    _VIDEO_TAGS = re.compile(
+        r"\s*[\(\[][^\)\]]*(official|video|lyric|audio|visuali[sz]er|hd|hq|4k|remaster|clip|live session)[^\)\]]*[\)\]]"
+        r"|\s*\|.*$",
+        re.I,
+    )
+
+    @classmethod
+    def _track(cls, t):
+        title = t.get("title") or ""
+        artist = ", ".join(a["name"] for a in t.get("artists") or [])
+        album = (t.get("album") or {}).get("name")
+        if not album:
+            # a plain video: the "artist" is the uploading channel and the
+            # title usually reads "Artist - Song (Official Video)"
+            clean = cls._VIDEO_TAGS.sub("", title).strip()
+            parts = re.split(r"\s+[-–—]\s+", clean, maxsplit=1)
+            if len(parts) != 2:
+                # "Georg Danzer-Hupf in Gatsch" – only when the left side is a
+                # multi-word name, so names like "Jay-Z" stay intact
+                m = re.match(r"^([^-]*\s[^-]*?)-(\S.*)$", clean)
+                parts = [m.group(1), m.group(2)] if m and clean.count("-") == 1 else parts
+            if len(parts) == 2:
+                artist, title = parts[0].strip(), parts[1].strip()
+            else:
+                title = clean
+            artist = re.sub(r"\s*(-\s*Topic|VEVO|Official)$", "", artist, flags=re.I).strip()
+        return {
+            "title": title, "artist": artist, "album": album, "isrc": None,
+            "duration": t.get("duration_seconds"), "cover": ((t.get("thumbnails") or [{}])[0] or {}).get("url"),
+        }
+
     def my_playlists(self):
         yt = self._yt(auth=True)
         out = [self._pl(p) for p in yt.get_library_playlists(limit=None)]
@@ -383,11 +415,7 @@ class YouTubeService:
             raise ServiceError("ytmusicapi is not installed")
         yt = self._yt(auth=self.connected())
         p = yt.get_playlist(pid, limit=None)
-        tracks = [{
-            "title": t.get("title"), "artist": ", ".join(a["name"] for a in t.get("artists") or []),
-            "album": (t.get("album") or {}).get("name"), "isrc": None, "duration": t.get("duration_seconds"),
-            "cover": ((t.get("thumbnails") or [{}])[0] or {}).get("url"),
-        } for t in p.get("tracks", []) if t.get("title")]
+        tracks = [self._track(t) for t in p.get("tracks", []) if t.get("title")]
         meta = self._pl({**p, "playlistId": pid})
         return {**meta, "count": len(tracks), "tracks": tracks}
 
