@@ -41,7 +41,9 @@ automatically. Monitored artists are checked for new releases on a schedule.
   import CSV/text lists (Spotify via Exportify, Amazon Music via
   TuneMyMusic). Download
   whole playlists or single songs; songs are matched to Tidal by ISRC or
-  artist/title/length. Monitored playlists stay in sync and get an `.m3u8`
+  artist/title/length. Imported playlists are only looked up (cover, album,
+  length) – you choose to download single songs or the whole playlist.
+  Playlists set to "keep complete" stay in sync and get an `.m3u8`
   file in `<music>/_Playlists`; Music Assistant and Jellyfin pick them up
   automatically.
 - **Music source for players** – Tiddarr speaks the Open Subsonic API, so it

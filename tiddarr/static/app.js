@@ -71,12 +71,14 @@ const STRINGS = {
     chart_help: "Charts come from your linked accounts (Tidal, Deezer). Album and artist charts of a country are derived from its song chart.", songs_in_chart: "songs in the chart", best: "best",
     sug_empty: "Not enough data yet. Link your artists with Tidal (Settings → Tasks → Artwork & metadata).",
     pl_url: "Link", pl_csv: "CSV / list",
+    save_playlist: "Save as playlist", refresh_pl: "Refresh", imported: "imported – looking them up on Tidal",
+    monitor_pl: "Keep complete", monitor_pl_help: "Downloads missing and newly added songs automatically",
     add_to_playlist: "Add to playlist", new_playlist: "New playlist", playlist_name: "Playlist name", create: "Create",
     added_to: "Added to", selected: "selected", select_all: "Select all", move_up: "Move up", move_down: "Move down",
     remove_from_playlist: "Remove", rename: "Rename", own_playlist: "Your playlist – changes appear in Music Assistant and Jellyfin automatically.",
     sp_exportify: "No developer account needed: sign in at Exportify with your Spotify account, export your playlists and Liked Songs as CSV (\"Export All\" gives a ZIP – unpack it) and import the files here.",
     sp_link_hint: "Spotify links can't be read directly. Export the playlist with Exportify and import the CSV:", files_imported: "playlists imported", my_playlists: "My playlists", saved_playlists: "Saved & monitored", search_playlists: "Search public playlists", paste_link: "Playlist link from Tidal, Deezer, YouTube Music or Apple Music",
-    open: "Open", download_all: "Download all", monitor_playlist: "Download & keep in sync", synced: "Synced", tracks_owned: "in library",
+    open: "Open", download_all: "Download all", monitor_playlist: "Download & keep complete", synced: "Synced", tracks_owned: "in library",
     not_found: "not found", import_list: "Import list / CSV", import_help: "Spotify: CSV files from Exportify (several at once). Amazon Music & others: CSV from TuneMyMusic or Soundiiz. Or one \"Artist - Title\" per line.",
     import_name: "Playlist name", import_go: "Import & download", choose_file: "Choose file", services: "Services & import",
     connect_btn: "Connect", disconnect: "Disconnect", connected_as: "Connected as",
@@ -154,12 +156,14 @@ const STRINGS = {
     chart_help: "Charts kommen von deinen verknüpften Konten (Tidal, Deezer). Album- und Interpreten-Charts eines Landes werden aus den Song-Charts abgeleitet.", songs_in_chart: "Songs in den Charts", best: "beste",
     sug_empty: "Noch zu wenig Daten. Verknüpfe deine Interpreten mit Tidal (Einstellungen → Aufgaben → Artwork & Metadaten).",
     pl_url: "Link", pl_csv: "CSV / Liste",
+    save_playlist: "Als Playlist speichern", refresh_pl: "Aktualisieren", imported: "importiert – werden auf Tidal gesucht",
+    monitor_pl: "Vollständig halten", monitor_pl_help: "Lädt fehlende und neu hinzugefügte Songs automatisch herunter",
     add_to_playlist: "Zur Playlist hinzufügen", new_playlist: "Neue Playlist", playlist_name: "Name der Playlist", create: "Anlegen",
     added_to: "Hinzugefügt zu", selected: "ausgewählt", select_all: "Alle auswählen", move_up: "Nach oben", move_down: "Nach unten",
     remove_from_playlist: "Entfernen", rename: "Umbenennen", own_playlist: "Deine Playlist – Änderungen erscheinen automatisch in Music Assistant und Jellyfin.",
     sp_exportify: "Kein Developer-Account nötig: Bei Exportify mit deinem Spotify-Konto anmelden, Playlists und Lieblingssongs als CSV exportieren (\"Export All\" liefert eine ZIP-Datei – entpacken) und die Dateien hier importieren.",
     sp_link_hint: "Spotify-Links lassen sich nicht direkt lesen. Exportiere die Playlist mit Exportify und importiere die CSV:", files_imported: "Playlists importiert", my_playlists: "Meine Playlists", saved_playlists: "Gespeichert & überwacht", search_playlists: "Öffentliche Playlists suchen", paste_link: "Playlist-Link von Tidal, Deezer, YouTube Music oder Apple Music",
-    open: "Öffnen", download_all: "Alle herunterladen", monitor_playlist: "Laden & synchron halten", synced: "Synchronisiert", tracks_owned: "in Bibliothek",
+    open: "Öffnen", download_all: "Alle herunterladen", monitor_playlist: "Laden & vollständig halten", synced: "Synchronisiert", tracks_owned: "in Bibliothek",
     not_found: "nicht gefunden", import_list: "Liste / CSV importieren", import_help: "Spotify: CSV-Dateien von Exportify (auch mehrere auf einmal). Amazon Music & andere: CSV von TuneMyMusic oder Soundiiz. Oder eine Zeile \"Interpret - Titel\" pro Song.",
     import_name: "Name der Playlist", import_go: "Importieren & herunterladen", choose_file: "Datei wählen", services: "Dienste & Import",
     connect_btn: "Verbinden", disconnect: "Trennen", connected_as: "Verbunden als",
@@ -872,7 +876,7 @@ async function viewPlaylists(_, alive) {
   };
   $("#impGo").onclick = async () => {
     const r = await act(() => post("/import/text", { name: $("#impName").value || "Import", text: $("#impText").value }));
-    toast(`${r.tracks} ${t("songs")} → ${t("added_queue")}`);
+    toast(`${r.tracks} ${t("songs")} ${t("imported")}`);
     location.hash = `#/saved/${r.id}`;
   };
   loadMine();
@@ -881,19 +885,23 @@ async function viewPlaylists(_, alive) {
 function playlistTrackTable(tracks, withState) {
   const stateBadge = (x) => x.owned ? `<span class="badge ok">${esc(t("owned"))}</span>` :
     x.state === "queued" ? `<span class="badge info">${esc(t("queued"))}</span>` :
-    x.state === "notfound" ? `<span class="badge err">${esc(t("not_found"))}</span>` : "";
+    x.state === "notfound" ? `<span class="badge err">${esc(t("not_found"))}</span>` :
+    x.state === "matched" ? `<span class="badge">${esc(t("on_tidal"))}</span>` : "";
   return `<table class="list">${tracks.map((x, i) => `<tr><td class="num">${i + 1}</td><td style="width:48px"><div class="thumb" ${bg(x.cover)}></div></td>
     <td>${esc(x.title)}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album || "")}</td><td class="muted hide-sm">${dur(x.duration)}</td>
-    <td class="row-actions">${x.owned || (withState && x.state === "queued") ? stateBadge(x) : `${stateBadge(x)} <button class="btn small" data-pt="${i}">${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>`;
+    <td class="row-actions">${x.owned || (withState && x.state === "queued") || x.state === "notfound" ? stateBadge(x) : `${stateBadge(x)} <button class="btn small" data-pt="${i}">${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>`;
 }
 
-function bindPlaylistTracks(tracks) {
+function bindPlaylistTracks(tracks, savedId) {
   main.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-pt]");
     if (!b) return;
     const x = tracks[+b.dataset.pt];
     b.disabled = true; b.innerHTML = `<span class="spinner"></span>`;
-    try { await post("/playlist-track/download", x); b.textContent = t("queued"); refreshStatus(); }
+    try {
+      await (savedId ? post(`/playlists/${savedId}/tracks/${x.id}/download`) : post("/playlist-track/download", x));
+      b.textContent = t("queued"); refreshStatus();
+    }
     catch (err) { toast(err.message, true); b.disabled = false; b.textContent = t("download"); }
   });
 }
@@ -904,14 +912,15 @@ async function viewRemotePlaylist(service, id, alive) {
   const owned = p.tracks.filter((x) => x.owned).length;
   main.innerHTML = `${loginBanner()}<div class="hero"><div class="art" ${bg(p.image)}></div><div class="meta"><span class="muted">${esc(SERVICE_NAMES[service])} · Playlist</span><h1>${esc(p.name)}</h1>
     <div class="stats"><span>${esc(p.owner || "")}</span><span><b>${p.tracks.length}</b> ${esc(t("songs"))}</span><span><b>${owned}</b> ${esc(t("tracks_owned"))}</span>${p.url ? `<a class="muted" target="_blank" rel="noopener" href="${esc(p.url)}">${esc(SERVICE_NAMES[service])} ↗</a>` : ""}</div>
-    <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="dlAll">${esc(t("download_all"))}</button><button class="btn" id="dlMon">${esc(t("monitor_playlist"))}</button>
+    <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="savePl">${esc(t("save_playlist"))}</button><button class="btn" id="dlAll">${esc(t("download_all"))}</button><button class="btn" id="dlMon">${esc(t("monitor_playlist"))}</button>
     ${p.saved_id ? `<a class="btn" href="#/saved/${p.saved_id}">${esc(t("saved_playlists"))}</a>` : ""}</div></div></div>${playlistTrackTable(p.tracks)}`;
-  const go = async (monitor) => {
-    const r = await act(() => post(`/services/${service}/playlist/download`, { id: service === "apple" ? id : p.id, monitor }), t("added_queue"));
+  const go = async (opts, msg) => {
+    const r = await act(() => post(`/services/${service}/playlist/download`, { id: service === "apple" ? id : p.id, ...opts }), msg);
     location.hash = `#/saved/${r.id}`;
   };
-  $("#dlAll").onclick = () => go(false);
-  $("#dlMon").onclick = () => go(true);
+  $("#savePl").onclick = () => go({}, t("saved"));
+  $("#dlAll").onclick = () => go({ download: true }, t("added_queue"));
+  $("#dlMon").onclick = () => go({ monitor: true }, t("added_queue"));
   bindPlaylistTracks(p.tracks);
 }
 
@@ -953,15 +962,16 @@ async function viewSavedPlaylist(id, alive) {
     main.innerHTML = `${loginBanner()}<div class="hero"><div class="art" ${bg(p.image)}></div><div class="meta"><span class="muted">${esc(SERVICE_NAMES[p.service])} · Playlist</span><h1>${esc(p.name)}</h1>
       <div class="stats"><span><b>${tracks.length}</b> ${esc(t("songs"))}</span><span><b>${owned}</b> ${esc(t("tracks_owned"))}</span>${p.last_sync ? `<span>${esc(t("synced"))}: ${esc(p.last_sync)}</span>` : ""}
         ${sync && sync.running ? `<span><span class="spinner"></span> ${sync.done}/${sync.total} ${esc(sync.message || "")}</span>` : ""}${sync && !sync.running && sync.message && sync.message.startsWith("error") ? `<span class="badge err">${esc(sync.message)}</span>` : ""}</div>
-      <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="sync">${esc(t("sync_now"))}</button>
-        <label class="btn"><input type="checkbox" id="mon" ${p.monitored ? "checked" : ""}> ${esc(t("monitor"))}</label>
+      <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="dlAllSaved" ${tracks.every((x) => x.owned || x.state === "queued" || x.state === "notfound") ? "disabled" : ""}>${esc(t("download_all"))}</button><button class="btn" id="sync">${esc(t("refresh_pl"))}</button>
+        <label class="btn" title="${esc(t("monitor_pl_help"))}"><input type="checkbox" id="mon" ${p.monitored ? "checked" : ""}> ${esc(t("monitor_pl"))}</label>
         <label class="btn"><input type="checkbox" id="m3u" ${p.write_m3u ? "checked" : ""}> ${esc(t("write_m3u"))}</label>
         <button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>${playlistTrackTable(tracks, true)}`;
     $("#sync").onclick = async () => { await act(() => post(`/playlists/${id}/sync`)); setTimeout(load, 1000); };
+    $("#dlAllSaved").onclick = async () => { await act(() => post(`/playlists/${id}/sync`, { download: true }), t("added_queue")); setTimeout(load, 1000); };
     $("#mon").onchange = (e) => act(() => put(`/playlists/${id}`, { monitored: e.target.checked }), t("saved"));
     $("#m3u").onchange = (e) => act(() => put(`/playlists/${id}`, { write_m3u: e.target.checked }), t("saved"));
     $("#del").onclick = async () => { await act(() => del(`/playlists/${id}`)); location.hash = "#/playlists"; };
-    bindPlaylistTracks(tracks);
+    bindPlaylistTracks(tracks, id);
     return sync && sync.running;
   };
   await load();

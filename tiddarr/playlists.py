@@ -11,7 +11,7 @@ from pathlib import Path
 from . import db, downloader, library
 from .library import norm
 from .services import ServiceError, get as get_service
-from .tidal import TidalError, tidal
+from .tidal import TidalError, image, tidal
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ sync_state: dict[int, dict] = {}
 
 def library_index() -> dict:
     rows = db.q(
-        "SELECT t.id, t.path, t.title, t.isrc, t.duration, al.title AS album, ar.name AS artist FROM tracks t "
+        "SELECT t.id, t.path, t.title, t.isrc, t.duration, al.title AS album, al.cover, ar.name AS artist FROM tracks t "
         "JOIN albums al ON al.id=t.album_id JOIN artists ar ON ar.id=al.artist_id"
     )
     by_id, by_isrc, by_name = {}, {}, {}
@@ -149,8 +149,29 @@ def import_tracks(service: str, remote_id: str, name: str, tracks: list[dict], m
     return pl_id
 
 
-def sync(pl_id: int, download: bool = True):
-    """Re-read a saved playlist, match new songs and queue missing ones."""
+def _fill_from_tidal(r: dict) -> int | None:
+    """Find the song on Tidal and store its metadata (cover, album, length).
+    Returns the Tidal track id or None."""
+    tid = r.get("tidal_id") or match_track(dict(r))
+    if not tid:
+        db.run("UPDATE playlist_tracks SET state='notfound' WHERE id=?", (r["id"],))
+        return None
+    try:
+        t = tidal.track(tid)
+    except TidalError:
+        t = {}
+    album = t.get("album") or {}
+    db.run(
+        "UPDATE playlist_tracks SET tidal_id=?, cover=COALESCE(?, cover), album=COALESCE(NULLIF(album,''), ?), "
+        "duration=COALESCE(duration, ?), state=CASE WHEN state='queued' THEN 'queued' ELSE 'matched' END WHERE id=?",
+        (tid, image(album.get("cover"), 160), album.get("title"), t.get("duration"), r["id"]),
+    )
+    return tid
+
+
+def sync(pl_id: int, download: bool = False):
+    """Re-read a saved playlist and look up every song on Tidal (metadata).
+    Songs are only queued for download when download=True."""
     pl = db.one("SELECT * FROM playlists WHERE id=?", (pl_id,))
     if not pl:
         return
@@ -168,26 +189,28 @@ def sync(pl_id: int, download: bool = True):
         for r in rows:
             st["done"] += 1
             st["message"] = f"{r['artist']} – {r['title']}"
-            if find_in_library(idx, r):
-                db.run("UPDATE playlist_tracks SET state='owned' WHERE id=?", (r["id"],))
-                continue
-            if not download:
+            hit = find_in_library(idx, r)
+            if hit:
+                db.run("UPDATE playlist_tracks SET state='owned', cover=COALESCE(cover, ?) WHERE id=?",
+                       (image(hit.get("cover"), 160), r["id"]))
                 continue
             if r["state"] == "queued" and db.one(
                 "SELECT 1 FROM queue WHERE kind='track' AND tidal_id=? AND status IN ('queued','downloading','completed')", (r["tidal_id"],)
             ):
                 continue
-            tid = match_track(dict(r))
+            if r["state"] == "matched" and r["tidal_id"] and r["cover"] and not download:
+                continue  # metadata already known
+            tid = _fill_from_tidal(r)
             if not tid:
-                db.run("UPDATE playlist_tracks SET state='notfound' WHERE id=?", (r["id"],))
                 st["not_found"] += 1
                 continue
-            try:
-                downloader.enqueue_track(tidal.track(tid))
-                db.run("UPDATE playlist_tracks SET tidal_id=?, state='queued' WHERE id=?", (tid, r["id"]))
-                st["queued"] += 1
-            except TidalError as e:
-                log.warning("playlist track %s: %s", r["title"], e)
+            if download:
+                try:
+                    downloader.enqueue_track(tidal.track(tid))
+                    db.run("UPDATE playlist_tracks SET state='queued' WHERE id=?", (r["id"],))
+                    st["queued"] += 1
+                except TidalError as e:
+                    log.warning("playlist track %s: %s", r["title"], e)
         db.run("UPDATE playlists SET last_sync=CURRENT_TIMESTAMP WHERE id=?", (pl_id,))
         write_m3u(pl_id)
         # make the (new or changed) playlist show up in Music Assistant / Jellyfin
@@ -201,13 +224,26 @@ def sync(pl_id: int, download: bool = True):
         st["running"] = False
 
 
-def sync_async(pl_id: int, download=True):
+def download_entry(entry_id: int) -> dict:
+    r = db.one("SELECT * FROM playlist_tracks WHERE id=?", (entry_id,))
+    if not r:
+        raise LookupError("Song not found")
+    tid = _fill_from_tidal(r)
+    if not tid:
+        raise LookupError(f"Not found on Tidal: {r['artist']} – {r['title']}")
+    job = downloader.enqueue_track(tidal.track(tid))
+    db.run("UPDATE playlist_tracks SET state='queued' WHERE id=?", (entry_id,))
+    return {"tidal_id": tid, "job": job}
+
+
+def sync_async(pl_id: int, download=False):
     threading.Thread(target=sync, args=(pl_id, download), daemon=True).start()
 
 
 def sync_monitored():
+    # monitoring a playlist means: keep it complete on disk
     for pl in db.q("SELECT id FROM playlists WHERE monitored=1"):
-        sync(pl["id"])
+        sync(pl["id"], download=True)
 
 
 def write_m3u(pl_id: int):

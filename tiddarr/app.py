@@ -651,14 +651,23 @@ def service_playlist(sid):
 
 @app.post("/api/services/<sid>/playlist/download")
 def service_playlist_download(sid):
-    """Save the playlist, then match and queue every missing song."""
+    """Save the playlist and look its songs up on Tidal; download only on request."""
     b = body()
     ref = b["id"]
     remote = services.get(sid).playlist(ref)
-    pl_id = playlists.save(sid, {**remote, "url": remote.get("url") or (ref if sid == "apple" else None)}, bool(b.get("monitor")))
+    monitor = bool(b.get("monitor"))
+    pl_id = playlists.save(sid, {**remote, "url": remote.get("url") or (ref if sid == "apple" else None)}, monitor)
     playlists._store_tracks(pl_id, remote["tracks"])
-    playlists.sync_async(pl_id)
+    playlists.sync_async(pl_id, download=bool(b.get("download")) or monitor)
     return jsonify(id=pl_id)
+
+
+@app.post("/api/playlists/<int:pl_id>/tracks/<int:entry_id>/download")
+def playlist_entry_download(pl_id, entry_id):
+    try:
+        return jsonify(playlists.download_entry(entry_id))
+    except LookupError as e:
+        return jsonify(error=str(e)), 404
 
 
 @app.post("/api/playlist-track/download")
@@ -767,7 +776,7 @@ def playlist_order(pl_id):
 
 @app.post("/api/playlists/<int:pl_id>/sync")
 def sync_playlist(pl_id):
-    playlists.sync_async(pl_id)
+    playlists.sync_async(pl_id, download=bool(body().get("download")))
     return jsonify(ok=True)
 
 
