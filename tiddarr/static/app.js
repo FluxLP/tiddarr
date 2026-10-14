@@ -643,6 +643,8 @@ async function viewStale(alive) {
       const size = d.items.filter((x) => sel.has(x.id)).reduce((n, x) => n + (x.size || 0), 0);
       $("#selInfo").textContent = sel.size ? `${sel.size} ${t("selected")} · ${bytes(size)}` : "";
       $("#keepSel").disabled = $("#delSel").disabled = !sel.size;
+      $("#selAll").checked = sel.size > 0 && sel.size === d.items.length;
+      $("#selAll").indeterminate = sel.size > 0 && sel.size < d.items.length;
     };
     $("#tbl").addEventListener("change", (e) => {
       if (e.target.id === "selAll") { d.items.forEach((x) => (e.target.checked ? sel.add(x.id) : sel.delete(x.id))); $("#tbl").querySelectorAll("[data-sel]").forEach((c) => (c.checked = e.target.checked)); }
@@ -686,7 +688,12 @@ async function viewTracks(_, alive) {
     const b = e.target.closest("[data-play]");
     if (b) { const x = items.find((i) => i.id === +b.dataset.play); play(x, `${x.artist || x.artist_name} – ${x.album}`); }
   });
-  const updSel = () => { $("#selInfo").textContent = sel.size ? `${sel.size} ${t("selected")}` : ""; $("#selAdd").disabled = !sel.size; };
+  const updSel = () => {
+    $("#selInfo").textContent = sel.size ? `${sel.size} ${t("selected")}` : "";
+    $("#selAdd").disabled = !sel.size;
+    const all = $("#selAll");
+    if (all) { const n = items.filter((x) => sel.has(x.id)).length; all.checked = n > 0 && n === items.length; all.indeterminate = n > 0 && n < items.length; }
+  };
   $("#tbl").addEventListener("change", (e) => {
     if (e.target.id === "selAll") { items.forEach((x) => (e.target.checked ? sel.add(x.id) : sel.delete(x.id))); $("#tbl").querySelectorAll("[data-sel]").forEach((c) => (c.checked = e.target.checked)); }
     else if (e.target.dataset.sel) { e.target.checked ? sel.add(+e.target.dataset.sel) : sel.delete(+e.target.dataset.sel); }
