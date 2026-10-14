@@ -6,7 +6,9 @@ from pathlib import Path
 
 import requests
 from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
+from flask import redirect as redirect_to
 
+from . import search as search_mod
 from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, plays, scheduler, services, subsonic, suggest
 from .tidal import TidalError, image, tidal
 
@@ -175,7 +177,9 @@ def _album_out(a: dict) -> dict:
 def _track_out(t: dict) -> dict:
     return {
         "tidal_id": t["id"], "title": t["title"] + (f" ({t['version']})" if t.get("version") else ""),
-        "artist": (t.get("artist") or {}).get("name"), "album": t["album"]["title"],
+        "artist": ", ".join(a["name"] for a in t.get("artists") or []) or (t.get("artist") or {}).get("name"),
+        "artist_tidal_id": ((t.get("artists") or [{}])[0] or {}).get("id") or (t.get("artist") or {}).get("id"),
+        "album": t["album"]["title"],
         "album_tidal_id": t["album"]["id"], "cover": image(t["album"].get("cover"), 160),
         "duration": t.get("duration"), "explicit": t.get("explicit"),
     }
@@ -196,12 +200,39 @@ def search():
             if kind == "album":
                 return jsonify(artists=[], albums=[_album_out(tidal.album(rid))], tracks=[])
             return jsonify(artists=[], albums=[], tracks=[_track_out(tidal.track(rid))])
-    res = tidal.search(query)
-    return jsonify(
-        artists=[_artist_out(a) for a in res.get("artists", {}).get("items", [])],
-        albums=[_album_out(a) for a in res.get("albums", {}).get("items", [])],
-        tracks=[_track_out(t) for t in res.get("tracks", {}).get("items", [])],
-    )
+    res = search_mod.run(query)
+    artists = [_artist_out(a) for a in res["artists"][:15]]
+    albums = [{**_album_out(a), "kind": "album", "score": sc} for sc, a in res["albums"][:30]]
+    tracks = [{**_track_out(t), "kind": "track", "score": sc} for sc, t in res["tracks"][:40]]
+    top = None
+    if res["top"]:
+        kind, item = res["top"]
+        top = {"kind": kind, **({"artist": _artist_out, "album": _album_out, "track": _track_out}[kind](item))}
+    # one list of songs and albums, most relevant first
+    items = sorted(tracks + albums, key=lambda x: -x["score"])
+    if top:
+        items = [x for x in items if not (x["kind"] == top["kind"] and x["tidal_id"] == top["tidal_id"])]
+    return jsonify(top=top, items=items, artists=artists, albums=albums, tracks=tracks, corrected=res["corrected"])
+
+
+@app.get("/api/tidal/track/<int:tidal_id>/listen")
+def tidal_listen(tidal_id):
+    """Redirect the browser's audio element to a Tidal stream (AAC) of the
+    track, to listen before downloading."""
+    import base64
+    import json as _json
+
+    for quality in ("HIGH", "LOW"):
+        try:
+            info = tidal.get(f"tracks/{tidal_id}/playbackinfopostpaywall",
+                             {"audioquality": quality, "playbackmode": "STREAM", "assetpresentation": "FULL"})
+        except TidalError:
+            continue
+        if info.get("manifestMimeType") == "application/vnd.tidal.bts":
+            urls = _json.loads(base64.b64decode(info["manifest"])).get("urls") or []
+            if urls:
+                return redirect_to(urls[0])
+    abort(404)
 
 
 @app.get("/api/tidal/artist/<int:tidal_id>")

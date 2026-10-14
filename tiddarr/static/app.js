@@ -78,6 +78,7 @@ const STRINGS = {
     never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
     stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
     plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
+    song: "Song", top_hit: "Top result", results_for: "Showing results for", preview_tidal: "Preview from Tidal",
     own_tab: "Own", import_tab: "Import", unnamed: "Untitled", lookup_waiting: "Waiting for lookup", lookup_running: "Looking up",
     choose_files: "Choose CSV files", paste_text: "Paste text", csv_hint: "Spotify: export via", paste_placeholder: "Artist - Title (one per line) or CSV",
     no_imports: "No imported playlists yet – search, paste a link or import CSV files above.", no_own: "No own playlists yet – create one or add songs via right-click.",
@@ -177,6 +178,7 @@ const STRINGS = {
     never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
     stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
     plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
+    song: "Song", top_hit: "Top-Treffer", results_for: "Ergebnisse für", preview_tidal: "Vorschau von Tidal",
     own_tab: "Eigene", import_tab: "Import", unnamed: "Ohne Namen", lookup_waiting: "Wartet auf Abgleich", lookup_running: "Abgleich",
     choose_files: "CSV-Dateien wählen", paste_text: "Text einfügen", csv_hint: "Spotify: exportieren über", paste_placeholder: "Interpret - Titel (eine Zeile pro Song) oder CSV",
     no_imports: "Noch keine importierten Playlists – oben suchen, Link einfügen oder CSV-Dateien importieren.", no_own: "Noch keine eigenen Playlists – lege eine an oder füge Songs per Rechtsklick hinzu.",
@@ -531,7 +533,7 @@ function play(track, sub) {
   $("#playerTitle").textContent = track.title;
   $("#playerSub").textContent = sub || "";
   const a = $("#audio");
-  a.src = `/api/tracks/${track.id}/stream`;
+  a.src = track.src || `/api/tracks/${track.id}/stream`;
   a.play().catch(() => {});
 }
 $("#playerClose").onclick = () => { $("#audio").pause(); $("#player").hidden = true; };
@@ -718,28 +720,73 @@ async function viewTracks(_, alive) {
 // --------------------------------------------------------------------- add
 
 async function viewAdd(query, alive) {
+  let filter = localStorage.getItem("addFilter") || "all";
+  const FILTERS = [["all", "all"], ["track", "songs"], ["album", "albums"], ["artist", "artists"]];
   main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_add"))}</h1></div>
-    <form id="addForm" class="toolbar"><input type="search" id="addQ" style="flex:1;min-width:240px;padding:10px 14px;font-size:15px" placeholder="${esc(t("search_tidal"))}" value="${esc(query || "")}" autofocus>
-    <button class="btn primary">${esc(t("search"))}</button></form><div id="results"></div>`;
+    <form id="addForm" class="search-box"><input type="search" id="addQ" placeholder="${esc(t("search_tidal"))}" value="${esc(query || "")}" autofocus><button class="btn primary">${esc(t("search"))}</button></form>
+    <div class="chips" id="addFilter">${FILTERS.map(([id, k]) => `<button class="chip" data-f="${id}">${esc(t(k))}</button>`).join("")}</div>
+    <div id="results"></div>`;
   $("#addForm").onsubmit = (e) => { e.preventDefault(); const q = $("#addQ").value.trim(); if (q) location.hash = "#/add/" + encodeURIComponent(q); };
-  if (!query) return;
+  const markFilter = () => $("#addFilter").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.f === filter));
+  markFilter();
+  if (!query) { $("#addFilter").hidden = true; return; }
   $("#results").innerHTML = `<div class="muted"><span class="spinner"></span> ${esc(t("searching"))}</div>`;
   const r = await api(`/search?q=${encodeURIComponent(query)}`);
   if (!alive()) return;
-  const artists = r.artists.slice(0, 12), albums = r.albums.slice(0, 18), tracks = r.tracks.slice(0, 15);
-  $("#results").innerHTML = `
-    ${artists.length ? `<h2>${esc(t("artists"))}</h2><div class="grid">${artists.map((a) => `<div class="card">
-      <a href="#/tidal/artist/${a.tidal_id}"><div class="img round" ${bg(a.picture)}></div></a>
-      <div class="body"><a class="title" href="#/tidal/artist/${a.tidal_id}">${esc(a.name)}</a>
-      <div class="actions">${a.library_id && a.monitored ? `<a class="btn small" href="#/artist/${a.library_id}">${esc(t("in_library"))}</a>` : `<button class="btn small primary" data-add-artist="${a.tidal_id}" data-name="${esc(a.name)}">${esc(t("add"))}</button>`}</div></div></div>`).join("")}</div>` : ""}
-    ${albums.length ? `<h2>${esc(t("albums"))}</h2><div class="grid">${albums.map((a) => `<div class="card">
-      <div class="img" ${bg(a.cover)}></div>
-      <div class="body"><div class="title" title="${esc(a.title)}">${esc(a.title)}</div><div class="sub">${esc(a.artist)} · ${esc(a.year)} · ${esc(typeLabel(a.type))}${a.explicit ? " · Explicit" : ""}${a.hires ? " · Hi-Res" : ""}</div>
-      <div class="actions">${a.library_id && a.track_files ? `<a class="btn small" href="#/album/${a.library_id}">${esc(t("in_library"))}</a>` : `<button class="btn small primary" data-add-album="${a.tidal_id}">${esc(t("download"))}</button>`}</div></div></div>`).join("")}</div>` : ""}
-    ${tracks.length ? `<h2>${esc(t("songs"))}</h2><table class="list">${tracks.map((x) => `<tr><td style="width:48px"><div class="thumb" ${bg(x.cover)}></div></td><td>${esc(x.title)}${x.explicit ? " · Explicit" : ""}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album)}</td><td class="muted">${dur(x.duration)}</td>
-      <td class="row-actions"><button class="btn small" data-add-track="${x.tidal_id}">${esc(t("download"))}</button></td></tr>`).join("")}</table>` : ""}
-    ${!artists.length && !albums.length && !tracks.length ? `<div class="empty">${esc(t("no_results"))}</div>` : ""}`;
+
+  const kindLabel = (x) => x.kind === "track" ? t("song") : x.type === "EP" ? "EP" : x.type === "SINGLE" ? "Single" : "Album";
+  const action = (x) => {
+    if (x.kind === "track") return `<button class="btn small" data-add-track="${x.tidal_id}">${esc(t("download"))}</button>`;
+    if (x.kind === "album") return x.library_id && x.track_files ? `<a class="btn small" href="#/album/${x.library_id}">${esc(t("in_library"))}</a>` : `<button class="btn small primary" data-add-album="${x.tidal_id}">${esc(t("download"))}</button>`;
+    return x.library_id && x.monitored ? `<a class="btn small" href="#/artist/${x.library_id}">${esc(t("in_library"))}</a>` : `<button class="btn small primary" data-add-artist="${x.tidal_id}" data-name="${esc(x.name)}">${esc(t("add"))}</button>`;
+  };
+  const artistLink = (x) => x.artist_tidal_id ? `<a href="#/tidal/artist/${x.artist_tidal_id}">${esc(x.artist || "")}</a>` : esc(x.artist || "");
+
+  const topCard = (x) => {
+    if (!x) return "";
+    const img = x.kind === "artist" ? x.picture : x.cover;
+    const title = x.kind === "artist" ? x.name : x.title;
+    const sub = x.kind === "artist" ? t("artist") : `${kindLabel(x)} · ${artistLink(x)}${x.kind === "track" && x.album ? ` · ${esc(x.album)}` : ""}${x.year ? ` · ${esc(x.year)}` : ""}`;
+    return `<div class="top-hit ${x.kind === "track" ? "playable" : ""}" ${x.kind === "track" ? `data-listen="${x.tidal_id}" data-title="${esc(x.title)}" data-sub="${esc(x.artist || "")}"` : ""}>
+      <div class="top-art ${x.kind === "artist" ? "round" : ""}" ${bg(img)}>${x.kind === "track" ? `<span class="play-overlay">${ICON_PLAY}</span>` : ""}</div>
+      <div class="top-meta"><span class="muted small">${esc(t("top_hit"))}</span><h2>${esc(title)}${x.explicit ? ' <span class="badge">E</span>' : ""}</h2><div class="muted">${sub}</div>
+        <div class="actions">${x.kind === "artist" ? `<a class="btn small" href="#/tidal/artist/${x.tidal_id}">${esc(t("preview"))}</a>` : ""}${action(x)}</div></div></div>`;
+  };
+  const row = (x) => `<div class="result-row ${x.kind === "track" ? "playable" : ""}" ${x.kind === "track" ? `data-listen="${x.tidal_id}" data-title="${esc(x.title)}" data-sub="${esc(x.artist || "")}"` : ""}>
+      <div class="thumb" ${bg(x.cover)}>${x.kind === "track" ? `<span class="play-overlay">${ICON_PLAY}</span>` : ""}</div>
+      <div class="result-main"><div class="result-title">${esc(x.title)}${x.explicit ? ' <span class="badge">E</span>' : ""}</div>
+        <div class="muted small"><span class="kind">${esc(kindLabel(x))}</span> · ${artistLink(x)}${x.kind === "track" && x.album ? ` · ${esc(x.album)}` : ""}${x.year ? ` · ${esc(x.year)}` : ""}${x.kind === "album" && x.num_tracks ? ` · ${x.num_tracks} ${esc(t("songs"))}` : ""}</div></div>
+      <div class="muted small hide-sm">${x.kind === "track" ? dur(x.duration) : ""}</div>
+      <div class="row-actions">${action(x)}</div></div>`;
+  const artistItem = (a) => `<div class="side-artist"><a href="#/tidal/artist/${a.tidal_id}" class="side-art" ${bg(a.picture)}></a>
+      <div class="result-main"><a class="result-title" href="#/tidal/artist/${a.tidal_id}">${esc(a.name)}</a></div>${action({ ...a, kind: "artist" })}</div>`;
+
+  const render = () => {
+    markFilter();
+    const top = r.top && (filter === "all" || filter === r.top.kind) ? r.top : null;
+    const hint = r.corrected ? `<div class="muted small" style="margin-bottom:10px">${esc(t("results_for"))} „<b>${esc(r.corrected)}</b>“</div>` : "";
+    if (filter === "artist") {
+      $("#results").innerHTML = hint + (r.artists.length ? `<div class="grid">${r.artists.map((a) => `<div class="card"><a href="#/tidal/artist/${a.tidal_id}"><div class="img round" ${bg(a.picture)}></div></a>
+        <div class="body"><a class="title" href="#/tidal/artist/${a.tidal_id}">${esc(a.name)}</a><div class="actions">${action({ ...a, kind: "artist" })}</div></div></div>`).join("")}</div>` : `<div class="empty">${esc(t("no_results"))}</div>`);
+      return;
+    }
+    const list = filter === "all" ? r.items : r.items.filter((x) => x.kind === filter);
+    const mainCol = `${topCard(top)}${list.length ? `<div class="result-list">${list.map(row).join("")}</div>` : top ? "" : `<div class="empty">${esc(t("no_results"))}</div>`}`;
+    const side = filter === "all" && r.artists.length ? `<aside class="search-side"><h3>${esc(t("artists"))}</h3>${r.artists.slice(0, 10).map(artistItem).join("")}</aside>` : "";
+    $("#results").innerHTML = hint + `<div class="search-layout ${side ? "" : "single"}"><div class="search-main">${mainCol}</div>${side}</div>`;
+  };
+  $("#addFilter").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; localStorage.setItem("addFilter", filter); render(); } };
+  // click a song (anywhere but its buttons/links) to listen
+  $("#results").addEventListener("click", (e) => {
+    if (e.target.closest("button, a")) return;
+    const el = e.target.closest("[data-listen]");
+    if (!el) return;
+    play({ src: `/api/tidal/track/${el.dataset.listen}/listen`, title: el.dataset.title }, `${el.dataset.sub} · ${t("preview_tidal")}`);
+    $("#results").querySelectorAll(".playing").forEach((x) => x.classList.remove("playing"));
+    el.classList.add("playing");
+  });
   bindAddActions($("#results"));
+  render();
 }
 
 function bindAddActions(root) {
