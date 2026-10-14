@@ -85,6 +85,7 @@ def status():
         match=library.match_state,
         artwork=metadata.task_state,
         refreshing=scheduler.state["refreshing"],
+        paused=downloader.paused(),
     )
 
 
@@ -884,7 +885,7 @@ def queue():
     )
     for r in active + history:
         r["cover_url"] = image(r.pop("cover"), 160)
-    return jsonify(active=active, history=history)
+    return jsonify(active=active, history=history, paused=downloader.paused())
 
 
 @app.get("/api/queue/<int:job_id>")
@@ -902,6 +903,23 @@ def queue_cancel(job_id):
 def queue_retry(job_id):
     downloader.retry(job_id)
     return jsonify(ok=True)
+
+
+@app.post("/api/queue/pause")
+def queue_pause():
+    downloader.pause()
+    return jsonify(paused=True)
+
+
+@app.post("/api/queue/resume")
+def queue_resume():
+    downloader.resume()
+    return jsonify(paused=False)
+
+
+@app.post("/api/queue/clear")
+def queue_clear_all():
+    return jsonify(cleared=downloader.clear(unmonitor=bool(body().get("unmonitor", True))))
 
 
 @app.delete("/api/queue/history")

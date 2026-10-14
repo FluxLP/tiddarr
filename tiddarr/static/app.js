@@ -71,6 +71,10 @@ const STRINGS = {
     chart_help: "Charts come from your linked accounts (Tidal, Deezer). Album and artist charts of a country are derived from its song chart.", songs_in_chart: "songs in the chart", best: "best",
     sug_empty: "Not enough data yet. Link your artists with Tidal (Settings → Tasks → Artwork & metadata).",
     pl_url: "Link", pl_csv: "CSV / list",
+    pause: "Pause", resume: "Resume", clear_queue: "Clear queue", cleared: "downloads removed",
+    paused_banner: "Downloads are paused. Waiting jobs stay in the queue until you resume.",
+    clear_queue_text: "Removes all {n} waiting downloads and stops the running one. Songs already on disk stay.",
+    clear_unmonitor: "Stop monitoring these albums too (otherwise the next release check queues them again)",
     save_playlist: "Save as playlist", refresh_pl: "Refresh", imported: "imported – looking them up on Tidal",
     monitor_pl: "Keep complete", monitor_pl_help: "Downloads missing and newly added songs automatically",
     add_to_playlist: "Add to playlist", new_playlist: "New playlist", playlist_name: "Playlist name", create: "Create",
@@ -156,6 +160,10 @@ const STRINGS = {
     chart_help: "Charts kommen von deinen verknüpften Konten (Tidal, Deezer). Album- und Interpreten-Charts eines Landes werden aus den Song-Charts abgeleitet.", songs_in_chart: "Songs in den Charts", best: "beste",
     sug_empty: "Noch zu wenig Daten. Verknüpfe deine Interpreten mit Tidal (Einstellungen → Aufgaben → Artwork & Metadaten).",
     pl_url: "Link", pl_csv: "CSV / Liste",
+    pause: "Pausieren", resume: "Fortsetzen", clear_queue: "Warteschlange leeren", cleared: "Downloads entfernt",
+    paused_banner: "Downloads sind pausiert. Wartende Downloads bleiben in der Warteschlange, bis du fortsetzt.",
+    clear_queue_text: "Entfernt alle {n} wartenden Downloads und bricht den laufenden ab. Bereits geladene Songs bleiben erhalten.",
+    clear_unmonitor: "Diese Alben auch nicht mehr überwachen (sonst reiht der nächste Release-Check sie wieder ein)",
     save_playlist: "Als Playlist speichern", refresh_pl: "Aktualisieren", imported: "importiert – werden auf Tidal gesucht",
     monitor_pl: "Vollständig halten", monitor_pl_help: "Lädt fehlende und neu hinzugefügte Songs automatisch herunter",
     add_to_playlist: "Zur Playlist hinzufügen", new_playlist: "Neue Playlist", playlist_name: "Name der Playlist", create: "Anlegen",
@@ -249,7 +257,8 @@ async function refreshStatus() {
   try {
     const s = await api("/status");
     state.status = s;
-    $("#queueCount").textContent = s.counts.queue || "";
+    $("#queueCount").textContent = s.paused ? `‖ ${s.counts.queue || 0}` : (s.counts.queue || "");
+    $("#queueCount").title = s.paused ? t("paused_banner") : "";
     $("#wantedCount").textContent = s.missing || "";
     $("#sidebarFoot").innerHTML = `${s.counts.artists} ${esc(t("artists"))} · ${s.counts.albums} ${esc(t("albums"))}<br>${s.counts.tracks} ${esc(t("songs"))} · ${bytes(s.counts.size)}<br>v${esc(s.version)}${s.scan.running ? `<br><span class="spinner"></span> ${esc(t("scan_library"))}` : ""}`;
   } catch { /* offline */ }
@@ -1101,7 +1110,7 @@ async function showLog(jobId) {
 
 async function viewActivity(_, alive) {
   const load = async () => {
-    const { active, history } = await api("/queue");
+    const { active, history, paused } = await api("/queue");
     if (!alive()) return;
     const row = (j, isActive) => `<tr><td style="width:48px"><div class="thumb" ${bg(j.cover_url)}></div></td>
       <td>${j.album_id ? `<a href="#/album/${j.album_id}">${esc(j.title)}</a>` : esc(j.title)}<div class="muted small">${esc(j.artist)}${j.kind === "track" ? " · Track" : ""}</div></td>
@@ -1110,11 +1119,24 @@ async function viewActivity(_, alive) {
       <td class="row-actions"><button class="btn small" data-log="${j.id}">${esc(t("log"))}</button>
       ${isActive ? `<button class="btn small danger" data-cancel="${j.id}">${esc(t("cancel"))}</button>` : ""}
       ${["failed", "cancelled"].includes(j.status) ? `<button class="btn small" data-retry="${j.id}">${esc(t("retry"))}</button>` : ""}</td></tr>`;
-    main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("queue"))}</h1><span class="muted">${active.length}</span></div>
+    main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("queue"))}</h1><span class="muted">${active.length}</span><span class="spacer"></span>
+      <button class="btn ${paused ? "primary" : ""}" id="pauseBtn">${esc(t(paused ? "resume" : "pause"))}</button>
+      <button class="btn danger" id="clearQueue" ${active.length ? "" : "disabled"}>${esc(t("clear_queue"))}</button></div>
+      ${paused ? `<div class="banner">${esc(t("paused_banner"))}</div>` : ""}
       ${active.length ? `<table class="list">${active.map((j) => row(j, true)).join("")}</table>` : `<div class="empty">${esc(t("queue_empty"))}</div>`}
       <div class="toolbar" style="margin-top:28px"><h2 style="margin:0">${esc(t("history"))}</h2><span class="spacer"></span>${history.length ? `<button class="btn small" id="clear">${esc(t("clear_history"))}</button>` : ""}</div>
       ${history.length ? `<table class="list">${history.map((j) => row(j, false)).join("")}</table>` : ""}`;
     $("#clear")?.addEventListener("click", async () => { await act(() => del("/queue/history")); load(); });
+    $("#pauseBtn").onclick = async () => { await act(() => post(paused ? "/queue/resume" : "/queue/pause")); refreshStatus(); load(); };
+    $("#clearQueue").onclick = () => {
+      const m = modal(`<h2>${esc(t("clear_queue"))}</h2><p>${esc(t("clear_queue_text").replace("{n}", active.length))}</p>
+        <label class="checks" style="margin:8px 0"><label><input type="checkbox" id="unmon" checked> ${esc(t("clear_unmonitor"))}</label></label>
+        <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button><button class="btn danger" id="clearGo">${esc(t("clear_queue"))}</button></div>`);
+      $("#clearGo", m).onclick = async () => {
+        const r = await act(() => post("/queue/clear", { unmonitor: $("#unmon", m).checked }));
+        toast(`${r.cleared} ${t("cleared")}`); closeModal(); refreshStatus(); load();
+      };
+    };
   };
   main.addEventListener("click", async (e) => {
     const lg = e.target.closest("[data-log]"), c = e.target.closest("[data-cancel]"), r = e.target.closest("[data-retry]");

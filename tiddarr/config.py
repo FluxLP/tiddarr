@@ -53,6 +53,7 @@ DEFAULT_SETTINGS = {
     "chart_countries": "world,at,de",
     "chart_types": "song,album,artist",
     "chart_size": "50",
+    "queue_paused": "0",
     "subsonic_enabled": "1",
     "subsonic_user": "tiddarr",
     "subsonic_password": "",  # generated on first start
