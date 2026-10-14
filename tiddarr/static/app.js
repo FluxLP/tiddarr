@@ -54,6 +54,11 @@ const STRINGS = {
     embed_artwork: "Embed covers into audio files", folder_artwork: "Write cover.jpg / folder.jpg",
     artwork_settings: "Artwork", step_artists: "Linking artists", step_albums: "Identifying albums", step_artwork: "Adding covers", step_artists_art: "Artist pictures",
     unmatched_badge: "Not matched", search: "Search", tab_accounts: "Accounts", tab_integrations: "Integrations",
+    source_title: "Tiddarr as a music source (Subsonic)", source_help: "Tiddarr offers the Open Subsonic API. Add it as a music source in Music Assistant or any Subsonic app to browse and play your library – with covers, playlists and Hi-Res files.",
+    source_enabled: "Subsonic API enabled", server: "Server", new_password: "New password",
+    ma_add_title: "Add to Music Assistant", ma_step1: "Music Assistant → Settings → Music providers → Add.", ma_step2: "Choose \"Open Subsonic Media Server Library\".",
+    ma_step3: "Enter Base URL", ma_step3b: "leave the path empty, username and password as above.", ma_step4: "Save – Tiddarr's artists, albums and playlists appear in Music Assistant.",
+    source_apps: "Also works with Subsonic apps such as Symfonium, Amperfy, play:Sub, Substreamer or Feishin (server address incl. port).",
     integrations_help: "Media servers and players that are told about new music right after downloads finished.",
     auto_sync: "Sync automatically after downloads", ma_sources: "Synced sources", ma_no_fs: "Music Assistant has no filesystem music source. Add your music folder there (Settings → Music providers → Filesystem) so it can see Tiddarr's downloads.",
     ma_help: "Music Assistant 2.7+ needs a login. Either create a long-lived token in Music Assistant (Settings → Profile → Tokens) or enter username and password once – Tiddarr then creates a token itself and does not store the password.",
@@ -128,6 +133,11 @@ const STRINGS = {
     embed_artwork: "Cover in Audiodateien einbetten", folder_artwork: "cover.jpg / folder.jpg schreiben",
     artwork_settings: "Artwork", step_artists: "Interpreten verknüpfen", step_albums: "Alben erkennen", step_artwork: "Cover ergänzen", step_artists_art: "Interpretenbilder",
     unmatched_badge: "Nicht zugeordnet", search: "Suchen", tab_accounts: "Konten", tab_integrations: "Integrationen",
+    source_title: "Tiddarr als Musikquelle (Subsonic)", source_help: "Tiddarr bietet die Open-Subsonic-Schnittstelle. Füge es in Music Assistant oder einer Subsonic-App als Musikquelle hinzu, um deine Bibliothek zu durchsuchen und abzuspielen – mit Covern, Playlists und Hi-Res-Dateien.",
+    source_enabled: "Subsonic-Schnittstelle aktiv", server: "Server", new_password: "Neues Passwort",
+    ma_add_title: "In Music Assistant hinzufügen", ma_step1: "Music Assistant → Einstellungen → Musikanbieter → Hinzufügen.", ma_step2: "\"Open Subsonic Media Server Library\" wählen.",
+    ma_step3: "Basis-URL eintragen", ma_step3b: "Pfad leer lassen, Benutzer und Passwort wie oben.", ma_step4: "Speichern – Tiddarrs Interpreten, Alben und Playlists erscheinen in Music Assistant.",
+    source_apps: "Funktioniert auch mit Subsonic-Apps wie Symfonium, Amperfy, play:Sub, Substreamer oder Feishin (Serveradresse inkl. Port).",
     integrations_help: "Medienserver und Player, die nach abgeschlossenen Downloads sofort über neue Musik informiert werden.",
     auto_sync: "Nach Downloads automatisch abgleichen", ma_sources: "Abgeglichene Quellen", ma_no_fs: "Music Assistant hat keine Dateisystem-Musikquelle. Füge dort deinen Musikordner hinzu (Einstellungen → Musikanbieter → Dateisystem), damit es Tiddarrs Downloads sieht.",
     ma_help: "Music Assistant ab 2.7 braucht eine Anmeldung. Entweder in Music Assistant einen Long-lived Token erstellen (Einstellungen → Profil → Tokens) oder einmalig Benutzername und Passwort eingeben – Tiddarr erstellt dann selbst einen Token und speichert das Passwort nicht.",
@@ -1017,7 +1027,23 @@ async function renderIntegrations() {
       <button class="btn" data-sync="${x.id}">${esc(t("sync_now"))}</button><button class="btn danger" data-remove="${x.id}">${esc(t("disconnect"))}</button></div>
     <div style="margin-top:8px">${status(x)}</div>`;
   const jf = by.jellyfin, ma = by.music_assistant;
+  const st = await api("/settings");
+  const host = location.hostname, port = location.port || (location.protocol === "https:" ? "443" : "80");
   box.innerHTML = `
+    <div class="panel"><h3>${esc(t("source_title"))}</h3>
+      <p class="muted small" style="margin-top:0">${esc(t("source_help"))}</p>
+      <div class="form-row"><label>${esc(t("source_enabled"))}</label><div class="checks"><label><input type="checkbox" id="ssOn" ${st.subsonic_enabled !== "0" ? "checked" : ""}></label></div></div>
+      <div class="form-row"><label>${esc(t("server"))}</label><code class="copy">${esc(location.protocol + "//" + host)}</code></div>
+      <div class="form-row"><label>Port</label><code class="copy">${esc(port)}</code></div>
+      <div class="form-row"><label>${esc(t("username"))}</label><input type="text" id="ssUser" value="${esc(st.subsonic_user)}"></div>
+      <div class="form-row"><label>${esc(t("password"))}</label><div class="toolbar" style="margin:0;flex-wrap:nowrap"><input type="text" id="ssPass" value="${esc(st.subsonic_password)}" style="flex:1;min-width:0;font-family:ui-monospace,monospace"><button class="btn" id="ssNew">${esc(t("new_password"))}</button></div></div>
+      <div class="toolbar" style="margin:6px 0 14px"><button class="btn primary" id="ssSave">${esc(t("save"))}</button></div>
+      <h3 style="margin-bottom:6px">${esc(t("ma_add_title"))}</h3>
+      <ol class="steps"><li>${esc(t("ma_step1"))}</li><li>${esc(t("ma_step2"))}</li>
+        <li>${esc(t("ma_step3"))} <code>${esc(location.protocol + "//" + host)}</code> · Port <code>${esc(port)}</code> · ${esc(t("ma_step3b"))}</li>
+        <li>${esc(t("ma_step4"))}</li></ol>
+      <p class="muted small">${esc(t("source_apps"))}</p></div>`;
+  box.insertAdjacentHTML("beforeend", `
     <div class="panel"><h3>Music Assistant</h3>${ma.configured
       ? connectedHead(ma, ma.providers.length ? `<p class="muted small">${esc(t("ma_sources"))}: ${ma.providers.map((p) => esc(p.name)).join(", ")}</p>` : `<div class="banner">${esc(t("ma_no_fs"))}</div>`)
       : `<p class="muted small" style="margin-top:0">${esc(t("ma_help"))}</p>
@@ -1031,7 +1057,9 @@ async function renderIntegrations() {
       : `<p class="muted small" style="margin-top:0">${esc(t("jellyfin_help"))}</p>
         <div class="form-row"><label>URL</label><input type="text" id="jfUrl" placeholder="http://jellyfin:8096"></div>
         <div class="form-row"><label>${esc(t("jellyfin_key"))}</label><input type="password" id="jfKey"></div>
-        <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="jfGo">${esc(t("connect_btn"))}</button></div>`}</div>`;
+        <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="jfGo">${esc(t("connect_btn"))}</button></div>`}</div>`);
+  $("#ssSave").onclick = () => act(() => put("/settings", { subsonic_enabled: $("#ssOn").checked ? "1" : "0", subsonic_user: $("#ssUser").value.trim(), subsonic_password: $("#ssPass").value.trim() }), t("saved"));
+  $("#ssNew").onclick = async () => { const r = await act(() => post("/subsonic/password")); $("#ssPass").value = r.password; toast(t("saved")); };
   $("#maGo")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     try { await act(() => put("/integrations/music_assistant", { url: $("#maUrl").value, token: $("#maToken").value, username: $("#maUser").value, password: $("#maPass").value }), "Music Assistant"); renderIntegrations(); }

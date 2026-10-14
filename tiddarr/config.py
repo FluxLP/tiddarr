@@ -53,6 +53,9 @@ DEFAULT_SETTINGS = {
     "chart_countries": "world,at,de",
     "chart_types": "song,album,artist",
     "chart_size": "50",
+    "subsonic_enabled": "1",
+    "subsonic_user": "tiddarr",
+    "subsonic_password": "",  # generated on first start
     "jellyfin_url": "",  # legacy, moved to the integrations settings
     "jellyfin_api_key": "",
 }

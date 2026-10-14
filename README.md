@@ -42,6 +42,12 @@ automatically. Monitored artists are checked for new releases on a schedule.
   whole playlists or single songs; songs are matched to Tidal by ISRC or
   artist/title/length. Monitored playlists stay in sync and get an `.m3u8`
   file in `<music>/_Playlists`.
+- **Music source for players** – Tiddarr speaks the Open Subsonic API, so it
+  can be added as a music provider in Music Assistant ("Open Subsonic Media
+  Server Library") and in Subsonic apps (Symfonium, Amperfy, play:Sub,
+  Feishin …): artists, albums, playlists, covers and Hi-Res streaming.
+- **Integrations** – after downloads Tiddarr tells Jellyfin and Music
+  Assistant to rescan (Music Assistant 2.7+ via long-lived token).
 - **Delete** artists, albums or songs (right-click or button), optionally
   including the files on disk.
 - Collapsible sidebar, folder picker for the music folder.
@@ -125,6 +131,14 @@ country are derived from its song chart.
 Before every download Tiddarr asks Tidal whether the account may stream the
 track. Without that check, tiddl misreads a *“quality not allowed in
 subscription”* answer as an expired token and keeps refreshing forever.
+
+### Adding Tiddarr to Music Assistant
+
+1. Tiddarr → Settings → Integrations shows the Subsonic username and password.
+2. Music Assistant → Settings → Music providers → Add → *Open Subsonic Media
+   Server Library*.
+3. Base URL `http://<tiddarr-host>`, port `8688`, empty path, username and
+   password from step 1.
 
 ## Disclaimer
 

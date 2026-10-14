@@ -197,3 +197,5 @@ textarea:focus { outline: none; border-color: var(--accent) !important; }
 .tabs a.on, .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
 [data-tab][hidden] { display: none; }
 [data-mode][hidden] { display: none; }
+code, .copy { font: 13px ui-monospace, monospace; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; user-select: all; }
+ol.steps { margin: 0 0 8px; padding-left: 20px; line-height: 1.9; }

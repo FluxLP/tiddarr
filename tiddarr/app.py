@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 
-from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, scheduler, services, suggest
+from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, scheduler, services, subsonic, suggest
 from .tidal import TidalError, image, tidal
 
 log = logging.getLogger(__name__)
@@ -16,10 +16,13 @@ STATIC = Path(__file__).parent / "static"
 app = Flask(__name__, static_folder=None)
 
 
+app.register_blueprint(subsonic.bp)
+
+
 @app.before_request
 def basic_auth():
-    if not config.USERNAME:
-        return None
+    if not config.USERNAME or request.path.startswith("/rest/"):
+        return None  # the Subsonic API has its own credentials
     a = request.authorization
     if a and hmac.compare_digest(a.username or "", config.USERNAME) and hmac.compare_digest(
         a.password or "", config.PASSWORD
@@ -739,6 +742,14 @@ def delete_playlist(pl_id):
 
 # ------------------------------------------------------------ integrations
 
+@app.post("/api/subsonic/password")
+def subsonic_new_password():
+    import secrets
+
+    db.set_setting("subsonic_password", secrets.token_urlsafe(12))
+    return jsonify(password=db.get_setting("subsonic_password"))
+
+
 @app.get("/api/integrations")
 def integrations_list():
     return jsonify([
@@ -853,6 +864,7 @@ def queue_clear():
 
 def create_app():
     db.init()
+    subsonic.ensure_credentials()
     downloader.start()
     scheduler.start()
     if not db.one("SELECT 1 FROM tracks LIMIT 1"):
