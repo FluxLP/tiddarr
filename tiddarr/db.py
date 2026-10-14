@@ -100,6 +100,10 @@ MIGRATIONS = [
     ("albums", "art_done", "INTEGER NOT NULL DEFAULT 0", None),
     ("albums", "match_state", "TEXT", None),
     ("playlist_tracks", "track_id", "INTEGER", None),
+    ("tracks", "play_count", "INTEGER NOT NULL DEFAULT 0", None),
+    ("tracks", "last_played", "REAL", None),
+    ("tracks", "keep", "INTEGER NOT NULL DEFAULT 0", None),
+    ("tracks", "first_seen", "REAL", "UPDATE tracks SET first_seen=CAST(strftime('%s','now') AS REAL)"),
 ]
 
 
@@ -115,6 +119,8 @@ def init():
                 c.execute(after)
     for key, value in DEFAULT_SETTINGS.items():
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (key, value))
+    # plays are counted from this moment on (plus history imported from players)
+    c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('play_tracking_since', strftime('%s','now'))")
     # Jobs that were running when the process died will never finish.
     c.execute(
         "UPDATE queue SET status='queued', progress=0 WHERE status='downloading'"

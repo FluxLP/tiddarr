@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 
-from . import artwork, db, downloader, library, playlists
+from . import artwork, db, downloader, library, playlists, plays
 from .tidal import TidalError, tidal
 
 log = logging.getLogger(__name__)
@@ -70,6 +70,7 @@ def loop():
                 for album_id in artwork.pending_albums():
                     artwork.apply_album_art(album_id)
                 playlists.refresh_m3u_all()
+                plays.import_all()
             if refresh_h and now - state["last_refresh"] > refresh_h * 3600:
                 refresh_monitored()
         except Exception:

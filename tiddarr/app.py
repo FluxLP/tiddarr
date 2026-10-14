@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 
-from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, scheduler, services, subsonic, suggest
+from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, plays, scheduler, services, subsonic, suggest
 from .tidal import TidalError, image, tidal
 
 log = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ def status():
         scan=library.scan_state,
         match=library.match_state,
         artwork=metadata.task_state,
+        plays=plays.state,
         refreshing=scheduler.state["refreshing"],
         paused=downloader.paused(),
     )
@@ -510,6 +511,9 @@ def stream(track_id):
     t = db.one("SELECT path FROM tracks WHERE id=?", (track_id,))
     if not t:
         abort(404)
+    rng = request.headers.get("Range", "").replace(" ", "")
+    if not rng or rng.startswith("bytes=0-"):  # start of playback, not a seek
+        library.record_play(track_id)
     path = Path(t["path"]).resolve()
     if not path.is_relative_to(library.music_dir().resolve()) or not path.is_file():
         abort(404)
@@ -862,6 +866,43 @@ def task_match():
 @app.post("/api/tasks/artwork")
 def task_artwork():
     metadata.identify_all_async()
+    return jsonify(ok=True)
+
+
+@app.post("/api/tasks/plays")
+def task_plays():
+    plays.import_async()
+    return jsonify(ok=True)
+
+
+@app.get("/api/stale")
+def stale():
+    days = int(request.args.get("days") or db.get_setting("stale_days") or 365)
+    rows = library.stale_tracks(days)
+    for r in rows:
+        r["cover_url"] = album_cover({"id": r["album_id"], "cover": r.pop("cover"), "folder": r.pop("folder"),
+                                      "track_files": r.pop("track_files")}, 160)
+    return jsonify(days=days, since=float(db.get_setting("play_tracking_since") or 0),
+                   items=rows, size=sum(r["size"] or 0 for r in rows))
+
+
+@app.post("/api/tracks/delete")
+def tracks_delete():
+    b = body()
+    try:
+        res = library.delete_tracks([int(x) for x in b.get("ids", [])], files=bool(b.get("files", True)))
+    except PermissionError as e:
+        return jsonify(error=f"Permission denied: {e}"), 403
+    if res["tracks"]:
+        bg(integrations.notify_all)
+    return jsonify(res)
+
+
+@app.post("/api/tracks/keep")
+def tracks_keep():
+    b = body()
+    for tid in b.get("ids", []):
+        db.run("UPDATE tracks SET keep=? WHERE id=?", (0 if b.get("unkeep") else 1, int(tid)))
     return jsonify(ok=True)
 
 

@@ -57,6 +57,10 @@ automatically. Monitored artists are checked for new releases on a schedule.
   They show up in Music Assistant (and can be edited there) and in Jellyfin
   automatically. Playlists made in Music Assistant or Jellyfin show up in
   Tiddarr, where missing songs can be downloaded.
+- **Download queue controls** – pause/resume and clear the whole queue.
+- **Not played for a long time** – Tiddarr counts plays streamed through it
+  and imports "last played" from Music Assistant and Jellyfin; songs not
+  heard for a configurable time are listed to delete or keep.
 - **Delete** artists, albums or songs (right-click or button), optionally
   including the files on disk.
 - Collapsible sidebar, folder picker for the music folder.

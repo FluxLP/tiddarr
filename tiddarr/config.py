@@ -54,6 +54,7 @@ DEFAULT_SETTINGS = {
     "chart_types": "song,album,artist",
     "chart_size": "50",
     "queue_paused": "0",
+    "stale_days": "365",
     "subsonic_enabled": "1",
     "subsonic_user": "tiddarr",
     "subsonic_password": "",  # generated on first start

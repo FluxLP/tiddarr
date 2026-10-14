@@ -457,7 +457,18 @@ _EMPTY = {
 }
 for _name, _payload in _EMPTY.items():
     _endpoint(_name)(lambda _p=_payload: respond(_p))
-for _name in ("scrobble", "star", "unstar", "setRating", "savePlayQueue"):
+@_endpoint("scrobble")
+def scrobble():
+    if (_param("submission", "true") or "true").lower() != "false":
+        times = request.values.getlist("time")
+        for i, tid in enumerate(request.values.getlist("id")):
+            if tid.startswith("tr-"):
+                when = int(times[i]) / 1000 if i < len(times) and times[i].isdigit() else None
+                library.record_play(_id("tr", tid), when)
+    return respond()
+
+
+for _name in ("star", "unstar", "setRating", "savePlayQueue"):
     _endpoint(_name)(lambda: respond())
 _endpoint("getPlayQueue")(lambda: respond())
 
@@ -629,9 +640,17 @@ def _track_file(tid: str) -> Path:
     return p
 
 
+def _maybe_count(tid: str):
+    rng = request.headers.get("Range", "")
+    if not rng or rng.replace(" ", "").startswith("bytes=0-"):  # start of playback, not a seek
+        library.record_play(_id("tr", tid))
+
+
 @_endpoint("stream")
 def stream():
-    p = _track_file(_param("id", required=True))
+    tid = _param("id", required=True)
+    p = _track_file(tid)
+    _maybe_count(tid)
     return send_file(p, mimetype=MIME.get(p.suffix.lstrip(".").lower()), conditional=True)
 
 

@@ -71,6 +71,13 @@ const STRINGS = {
     chart_help: "Charts come from your linked accounts (Tidal, Deezer). Album and artist charts of a country are derived from its song chart.", songs_in_chart: "songs in the chart", best: "best",
     sug_empty: "Not enough data yet. Link your artists with Tidal (Settings → Tasks → Artwork & metadata).",
     pl_url: "Link", pl_csv: "CSV / list",
+    all_songs: "All songs", stale_tab: "Not played for a long time", stale_title: "Not played for {n} days",
+    stale_help: "Delete songs nobody listens to – or keep them, then they won't show up here again. Plays are counted when music is played through Tiddarr (Music Assistant, Subsonic apps, web player) and imported from Music Assistant and Jellyfin.",
+    stale_tracking: "Plays are counted since {since}. Songs that were never played show up here {n} days after that at the earliest.",
+    stale_empty: "Nothing here – everything was played recently.", keep: "Keep", last_played: "Last played", plays: "Plays",
+    never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
+    stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
+    plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
     pause: "Pause", resume: "Resume", clear_queue: "Clear queue", cleared: "downloads removed",
     paused_banner: "Downloads are paused. Waiting jobs stay in the queue until you resume.",
     clear_queue_text: "Removes all {n} waiting downloads and stops the running one. Songs already on disk stay.",
@@ -160,6 +167,13 @@ const STRINGS = {
     chart_help: "Charts kommen von deinen verknüpften Konten (Tidal, Deezer). Album- und Interpreten-Charts eines Landes werden aus den Song-Charts abgeleitet.", songs_in_chart: "Songs in den Charts", best: "beste",
     sug_empty: "Noch zu wenig Daten. Verknüpfe deine Interpreten mit Tidal (Einstellungen → Aufgaben → Artwork & Metadaten).",
     pl_url: "Link", pl_csv: "CSV / Liste",
+    all_songs: "Alle Songs", stale_tab: "Lange nicht gehört", stale_title: "Seit {n} Tagen nicht gehört",
+    stale_help: "Lösche Songs, die niemand mehr hört – oder behalte sie, dann tauchen sie hier nicht mehr auf. Wiedergaben zählt Tiddarr, wenn über Tiddarr gespielt wird (Music Assistant, Subsonic-Apps, Web-Player), und übernimmt sie aus Music Assistant und Jellyfin.",
+    stale_tracking: "Wiedergaben werden seit {since} gezählt. Nie gespielte Songs erscheinen hier frühestens {n} Tage danach.",
+    stale_empty: "Nichts dabei – alles wurde in letzter Zeit gehört.", keep: "Behalten", last_played: "Zuletzt gehört", plays: "Wiedergaben",
+    never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
+    stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
+    plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
     pause: "Pausieren", resume: "Fortsetzen", clear_queue: "Warteschlange leeren", cleared: "Downloads entfernt",
     paused_banner: "Downloads sind pausiert. Wartende Downloads bleiben in der Warteschlange, bis du fortsetzt.",
     clear_queue_text: "Entfernt alle {n} wartenden Downloads und bricht den laufenden ab. Bereits geladene Songs bleiben erhalten.",
@@ -277,7 +291,7 @@ const routes = [
   [/^#\/artist\/(\d+)$/, viewArtist, "artists"],
   [/^#\/albums$/, viewAlbums, "albums"],
   [/^#\/album\/(\d+)$/, viewAlbum, "albums"],
-  [/^#\/tracks$/, viewTracks, "tracks"],
+  [/^#\/tracks(?:\/(\w+))?$/, viewTracks, "tracks"],
   [/^#\/add(?:\/(.*))?$/, viewAdd, "add"],
   [/^#\/tidal\/artist\/(\d+)$/, viewTidalArtist, "add"],
   [/^#\/discover(?:\/(\w+))?$/, viewDiscover, "discover"],
@@ -588,10 +602,68 @@ async function identifyDialog(albumId, done) {
 
 // ------------------------------------------------------------------ tracks
 
-async function viewTracks(_, alive) {
+const TRACK_TABS = [["all", "all_songs"], ["stale", "stale_tab"]];
+const trackTabs = (tab) => `<div class="tabs">${TRACK_TABS.map(([id, k]) => `<a href="#/tracks/${id}" class="${id === tab ? "on" : ""}">${esc(t(k))}</a>`).join("")}</div>`;
+
+function ago(ts) {
+  if (!ts) return t("never");
+  const d = Math.floor((Date.now() / 1000 - ts) / 86400);
+  if (d < 1) return t("today");
+  if (d < 60) return t("days_ago").replace("{n}", d);
+  if (d < 730) return t("months_ago").replace("{n}", Math.floor(d / 30));
+  return t("years_ago").replace("{n}", Math.floor(d / 365));
+}
+
+async function viewStale(alive) {
+  const load = async () => {
+    const d = await api("/stale");
+    if (!alive()) return;
+    const sel = new Set();
+    const trackingDays = Math.floor((Date.now() / 1000 - d.since) / 86400);
+    main.innerHTML = `${trackTabs("stale")}
+      <div class="toolbar"><h1>${esc(t("stale_title").replace("{n}", d.days))}</h1><span class="muted">${d.items.length} ${esc(t("songs"))} · ${bytes(d.size)}</span><span class="spacer"></span>
+        <span class="muted small" id="selInfo"></span>
+        <button class="btn" id="keepSel" disabled>${esc(t("keep"))}</button><button class="btn danger" id="delSel" disabled>${esc(t("delete"))}</button></div>
+      <p class="muted small">${esc(t("stale_help"))} <a href="#/settings/library">${esc(t("nav_settings"))} →</a></p>
+      ${trackingDays < d.days ? `<div class="banner">${esc(t("stale_tracking").replace("{since}", new Date(d.since * 1000).toLocaleDateString()).replace("{n}", d.days))}</div>` : ""}
+      ${d.items.length ? `<table class="list" id="tbl"><tr><th style="width:28px"><input type="checkbox" id="selAll"></th><th></th><th>${esc(t("title"))}</th><th class="hide-sm">${esc(t("album"))}</th>
+        <th>${esc(t("last_played"))}</th><th class="hide-sm">${esc(t("plays"))}</th><th class="hide-sm">${esc(t("size"))}</th></tr>
+        ${d.items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td><input type="checkbox" data-sel="${x.id}"></td><td style="width:48px"><div class="thumb" ${bg(x.cover_url)}></div></td>
+          <td>${esc(x.title)}<div class="muted small"><a href="#/artist/${x.artist_id}">${esc(x.artist || x.artist_name)}</a></div></td>
+          <td class="hide-sm"><a class="muted" href="#/album/${x.album_id}">${esc(x.album)}</a></td><td class="nowrap">${esc(ago(x.last_played))}</td>
+          <td class="hide-sm muted">${x.play_count}</td><td class="hide-sm muted nowrap">${bytes(x.size)}</td></tr>`).join("")}</table>`
+        : `<div class="empty">${esc(t("stale_empty"))}</div>`}`;
+    if (!d.items.length) return;
+    const upd = () => {
+      const size = d.items.filter((x) => sel.has(x.id)).reduce((n, x) => n + (x.size || 0), 0);
+      $("#selInfo").textContent = sel.size ? `${sel.size} ${t("selected")} · ${bytes(size)}` : "";
+      $("#keepSel").disabled = $("#delSel").disabled = !sel.size;
+    };
+    $("#tbl").addEventListener("change", (e) => {
+      if (e.target.id === "selAll") { d.items.forEach((x) => (e.target.checked ? sel.add(x.id) : sel.delete(x.id))); $("#tbl").querySelectorAll("[data-sel]").forEach((c) => (c.checked = e.target.checked)); }
+      else if (e.target.dataset.sel) e.target.checked ? sel.add(+e.target.dataset.sel) : sel.delete(+e.target.dataset.sel);
+      upd();
+    });
+    $("#keepSel").onclick = async () => { await act(() => post("/tracks/keep", { ids: [...sel] }), t("saved")); load(); };
+    $("#delSel").onclick = () => {
+      const size = d.items.filter((x) => sel.has(x.id)).reduce((n, x) => n + (x.size || 0), 0);
+      const m = modal(`<h2>${esc(t("delete"))}: ${sel.size} ${esc(t("songs"))} (${bytes(size)})</h2><p class="muted">${esc(t("delete_warn"))}</p>
+        <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button><button class="btn danger" id="go">${esc(t("delete_files"))}</button></div>`);
+      $("#go", m).onclick = async () => {
+        $("#go", m).disabled = true;
+        try { const r = await post("/tracks/delete", { ids: [...sel], files: true }); toast(`${t("deleted")}: ${r.tracks} ${t("songs")}, ${bytes(r.freed)} ${t("freed")}`); closeModal(); refreshStatus(); load(); }
+        catch (e) { toast(e.message, true); $("#go", m).disabled = false; }
+      };
+    };
+  };
+  await load();
+}
+
+async function viewTracks(tab, alive) {
+  if (tab === "stale") return viewStale(alive);
   let offset = 0, items = [], total = 0;
   const sel = new Set();
-  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_tracks"))}</h1><span class="muted" id="count"></span><span class="spacer"></span>
+  main.innerHTML = `${loginBanner()}${trackTabs("all")}<div class="toolbar"><h1>${esc(t("nav_tracks"))}</h1><span class="muted" id="count"></span><span class="spacer"></span>
     <span class="muted small" id="selInfo"></span><button class="btn" id="selAdd" disabled>${esc(t("add_to_playlist"))}</button></div>
     <table class="list" id="tbl"></table><div style="text-align:center;margin-top:14px"><button class="btn" id="more" hidden>${esc(t("load_more"))}</button></div>`;
   const load = async (reset) => {
@@ -1276,6 +1348,7 @@ async function viewSettings(tab, alive) {
       <div class="form-row"><label>${esc(t("monitor_new_default"))}</label><div class="checks"><label><input type="checkbox" name="monitor_new_default" ${s.monitor_new_default === "1" ? "checked" : ""}></label></div></div>
       <div class="form-row"><label>${esc(t("refresh_hours"))}</label><input type="number" min="0" name="refresh_hours" value="${esc(s.refresh_hours)}"></div>
       <div class="form-row"><label>${esc(t("scan_hours"))}</label><input type="number" min="0" name="scan_hours" value="${esc(s.scan_hours)}"></div>
+      <div class="form-row"><label>${esc(t("stale_days_label"))}</label><input type="number" min="7" name="stale_days" value="${esc(s.stale_days)}"><div class="help">${esc(t("stale_days_help"))}</div></div>
       <div class="form-row"><label>${esc(t("threads"))}</label><input type="number" min="1" max="16" name="threads" value="${esc(s.threads)}"></div>
       <h3 style="margin-top:16px">${esc(t("artwork_settings"))}</h3>
       <div class="form-row"><label>${esc(t("embed_artwork"))}</label><div class="checks"><label><input type="checkbox" name="embed_artwork" ${s.embed_artwork === "1" ? "checked" : ""}></label></div></div>
@@ -1296,7 +1369,7 @@ async function viewSettings(tab, alive) {
     await act(() => put("/settings", {
       music_dir: f.get("music_dir"), quality: f.get("quality"), album_types: f.getAll("type").join(","),
       monitor_new_default: f.get("monitor_new_default") ? "1" : "0", refresh_hours: f.get("refresh_hours"),
-      scan_hours: f.get("scan_hours"), threads: f.get("threads"),
+      scan_hours: f.get("scan_hours"), threads: f.get("threads"), stale_days: f.get("stale_days"),
       embed_artwork: f.get("embed_artwork") ? "1" : "0", folder_artwork: f.get("folder_artwork") ? "1" : "0",
       chart_countries: f.getAll("chart").join(","), chart_types: f.getAll("ctype").join(","), chart_size: f.get("chart_size"),
     }), t("saved"));
@@ -1344,6 +1417,7 @@ async function viewSettings(tab, alive) {
     const awInfo = { ...aw, message: aw.running ? `${t("step_" + aw.step) || ""}: ${aw.message || ""}` : aw.message };
     box.innerHTML = task("scan", t("scan_library"), t("scan_help"), st.scan) + task("artwork", t("artwork_task"), t("artwork_help"), awInfo) + task("match", t("auto_match"), t("auto_match_help"), st.match) +
       task("refresh", t("refresh_all"), t("refresh_all_help"), { running: st.refreshing, done: "", total: "", message: "" }) +
+      task("plays", t("plays_task"), t("plays_task_help"), { running: st.plays && st.plays.running, done: "", total: "", message: st.plays ? st.plays.message : "" }) +
       `<div class="form-row"><label></label><a class="muted" href="#/unmatched">→ ${esc(t("unmatched_title"))}</a></div>`;
   };
   $("#tasks").addEventListener("click", async (e) => {

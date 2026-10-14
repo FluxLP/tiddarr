@@ -386,7 +386,7 @@ def scan(artist_folder: str | None = None):
                     t = _read_tags(p)
                     db.run(
                         "INSERT INTO tracks(album_id, path, title, artist, track_no, disc_no, duration, format, "
-                        "bits, sample_rate, size, mtime, isrc, has_art) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                        "bits, sample_rate, size, mtime, isrc, has_art, first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                         "ON CONFLICT(path) DO UPDATE SET album_id=excluded.album_id, title=excluded.title, "
                         "artist=excluded.artist, track_no=excluded.track_no, disc_no=excluded.disc_no, "
                         "duration=excluded.duration, format=excluded.format, bits=excluded.bits, "
@@ -394,7 +394,7 @@ def scan(artist_folder: str | None = None):
                         "isrc=excluded.isrc, has_art=excluded.has_art",
                         (album["id"], sp, t["title"] or p.stem, t["artist"], t["track_no"], t["disc_no"],
                          t["duration"], p.suffix.lower().lstrip("."), t["bits"], t["sample_rate"],
-                         st.st_size, st.st_mtime, t["isrc"], t["has_art"]),
+                         st.st_size, st.st_mtime, t["isrc"], t["has_art"], time.time()),
                     )
             # albums of this artist whose folder vanished
             for a in db.q("SELECT id, tidal_id FROM albums WHERE artist_id=? AND folder IS NOT NULL", (artist["id"],)):
@@ -570,3 +570,31 @@ def delete_artist(artist_id: int, files: bool = True) -> dict:
     db.run("DELETE FROM queue WHERE status='queued' AND album_id IN (SELECT id FROM albums WHERE artist_id=?)", (artist_id,))
     db.run("DELETE FROM artists WHERE id=?", (artist_id,))
     return total
+
+
+# --------------------------------------------------------------- plays
+
+def record_play(track_id: int, when: float | None = None, min_gap: float = 600):
+    """Count a play. Repeated requests for the same song within min_gap
+    seconds (seeking, buffering, retries) count once."""
+    when = when or time.time()
+    db.run(
+        "UPDATE tracks SET play_count=play_count + CASE WHEN COALESCE(last_played,0) < ? THEN 1 ELSE 0 END, "
+        "last_played=MAX(COALESCE(last_played,0), ?) WHERE id=?",
+        (when - min_gap, when, track_id),
+    )
+
+
+def stale_tracks(days: int) -> list[dict]:
+    """Songs not heard for `days`. Never played songs count from when Tiddarr
+    first saw them or started counting plays, whichever is later."""
+    since = float(db.get_setting("play_tracking_since") or time.time())
+    cutoff = time.time() - days * 86400
+    return db.q(
+        "SELECT t.id, t.title, t.artist, t.duration, t.size, t.format, t.play_count, t.last_played, "
+        "al.id AS album_id, al.title AS album, al.cover, al.folder, al.track_files, ar.id AS artist_id, ar.name AS artist_name "
+        "FROM tracks t JOIN albums al ON al.id=t.album_id JOIN artists ar ON ar.id=al.artist_id "
+        "WHERE t.keep=0 AND COALESCE(t.last_played, MAX(COALESCE(t.first_seen,0), ?)) < ? "
+        "ORDER BY COALESCE(t.last_played,0), ar.name COLLATE NOCASE, al.title, t.track_no",
+        (since, cutoff),
+    )
