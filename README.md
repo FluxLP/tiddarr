@@ -135,7 +135,7 @@ subscription”* answer as an expired token and keeps refreshing forever.
 ### Adding Tiddarr to Music Assistant
 
 1. Tiddarr → Settings → Integrations shows the Subsonic username and password.
-2. Music Assistant → Settings → Music providers → Add → *Open Subsonic Media
+2. Music Assistant → Settings → Music providers → Add → *OpenSubsonic Media
    Server Library*.
 3. Base URL `http://<tiddarr-host>`, port `8688`, empty path, username and
    password from step 1.

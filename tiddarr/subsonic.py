@@ -10,6 +10,7 @@ IDs: ar-<artist id>, al-<album id>, tr-<track id>, pl-<playlist id>
 
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 import xml.etree.ElementTree as ET
@@ -22,6 +23,7 @@ from . import __version__, artwork, db, library, playlists
 from .tidal import image
 
 API_VERSION = "1.16.1"
+log = logging.getLogger(__name__)
 bp = Blueprint("subsonic", __name__)
 
 MIME = {"flac": "audio/flac", "mp3": "audio/mpeg", "m4a": "audio/mp4", "mp4": "audio/mp4", "aac": "audio/aac",
@@ -115,10 +117,14 @@ def _endpoint(name):
 
     def deco(fn):
         def view():
+            client = f"{request.values.get('c', '?')}@{request.remote_addr}"
             try:
                 _check_auth()
-                return fn()
+                res = fn()
+                log.info("subsonic %s %s -> ok", client, name)
+                return res
             except Error as e:
+                log.warning("subsonic %s %s -> error %s: %s", client, name, e.code, e.message)
                 return error(e.code, e.message)
 
         view.__name__ = f"subsonic_{name}"

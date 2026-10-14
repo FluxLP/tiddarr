@@ -2,7 +2,7 @@
 
 - Jellyfin: library refresh via API key
 - Music Assistant (2.7+): long-lived token, then `music/sync` for the
-  filesystem providers that read the music folder
+  Open Subsonic provider pointing at Tiddarr and filesystem providers
 """
 
 import json
@@ -135,7 +135,9 @@ class MusicAssistant:
         return [
             {"id": p.get("instance_id"), "name": p.get("name") or p.get("instance_name_postfix") or p.get("domain")}
             for p in provs
-            if str(p.get("domain", "")).startswith("filesystem") and p.get("instance_id")
+            # filesystem sources read the music folder; opensubsonic is Tiddarr itself
+            if (str(p.get("domain", "")).startswith("filesystem") or p.get("domain") == "opensubsonic")
+            and p.get("instance_id")
         ]
 
     def remove(self):
@@ -148,7 +150,7 @@ class MusicAssistant:
         try:
             providers = self._filesystem_providers(c["url"], c["token"])
             if not providers:
-                _record(self.id, False, "no filesystem music source configured in Music Assistant")
+                _record(self.id, False, "no Tiddarr (Open Subsonic) or filesystem source configured in Music Assistant")
                 return
             self._call(c["url"], c["token"], "music/sync", providers=[p["id"] for p in providers])
             _record(self.id, True, "sync started: " + ", ".join(p["name"] for p in providers))
