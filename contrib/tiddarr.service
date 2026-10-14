@@ -1,0 +1,19 @@
+# Example systemd unit for a bare-metal install:
+#   python3 -m venv /opt/tiddarr/.venv && /opt/tiddarr/.venv/bin/pip install /opt/tiddarr
+#   cp contrib/tiddarr.service /etc/systemd/system/ && systemctl enable --now tiddarr
+[Unit]
+Description=Tiddarr - Tidal music library manager
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/tiddarr/.venv/bin/tiddarr
+Environment=TIDDARR_DATA_DIR=/var/lib/tiddarr
+Environment=TIDDARR_MUSIC_DIR=/srv/music
+# Share the login with an existing tiddl CLI install (optional):
+# Environment=TIDDL_PATH=/root/.tiddl
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

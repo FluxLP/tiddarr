@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiddarr"
+dynamic = ["version"]
+description = "Lidarr-style music library manager that downloads from Tidal via tiddl"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "tiddl>=3.4,<4",
+    "flask>=3.0",
+    "waitress>=3.0",
+    "mutagen>=1.47",
+    "requests>=2.31",
+]
+
+[project.scripts]
+tiddarr = "tiddarr.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "tiddarr.__version__" }
+
+[tool.setuptools.package-data]
+tiddarr = ["static/*"]

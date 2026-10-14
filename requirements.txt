@@ -1,0 +1,5 @@
+tiddl>=3.4,<4
+flask>=3.0
+waitress>=3.0
+mutagen>=1.47
+requests>=2.31

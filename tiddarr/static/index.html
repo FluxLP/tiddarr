@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiddarr</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+  <a class="logo" href="#/artists"><img src="/static/icon.svg" alt=""> Tiddarr</a>
+  <form class="top-search" id="topSearch">
+    <input type="search" id="topSearchInput" data-i18n-placeholder="search_placeholder" autocomplete="off">
+  </form>
+</header>
+<nav class="sidebar" id="sidebar">
+  <a href="#/artists" data-nav="artists"><span>🎤</span><b data-i18n="nav_artists"></b></a>
+  <a href="#/albums" data-nav="albums"><span>💿</span><b data-i18n="nav_albums"></b></a>
+  <a href="#/tracks" data-nav="tracks"><span>🎵</span><b data-i18n="nav_tracks"></b></a>
+  <a href="#/add" data-nav="add"><span>➕</span><b data-i18n="nav_add"></b></a>
+  <a href="#/wanted" data-nav="wanted"><span>⚠️</span><b data-i18n="nav_wanted"></b><i class="count" id="wantedCount"></i></a>
+  <a href="#/activity" data-nav="activity"><span>⬇️</span><b data-i18n="nav_activity"></b><i class="count" id="queueCount"></i></a>
+  <a href="#/settings" data-nav="settings"><span>⚙️</span><b data-i18n="nav_settings"></b></a>
+  <div class="sidebar-foot" id="sidebarFoot"></div>
+</nav>
+<main id="main"></main>
+<div class="player" id="player" hidden>
+  <div class="player-info"><b id="playerTitle"></b><span id="playerSub"></span></div>
+  <audio id="audio" controls></audio>
+  <button class="icon-btn" id="playerClose" aria-label="Close">✕</button>
+</div>
+<div class="modal-bg" id="modal" hidden><div class="modal" id="modalBody"></div></div>
+<div class="toasts" id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

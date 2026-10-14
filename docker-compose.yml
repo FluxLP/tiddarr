@@ -1,0 +1,16 @@
+services:
+  tiddarr:
+    build: .
+    # image: ghcr.io/<you>/tiddarr:latest
+    container_name: tiddarr
+    restart: unless-stopped
+    ports:
+      - "8688:8688"
+    volumes:
+      - ./data:/config            # database + Tidal login
+      - /path/to/music:/music     # your music library
+    environment:
+      - TZ=Europe/Berlin
+      # Optional basic auth for the web UI:
+      # - TIDDARR_USERNAME=admin
+      # - TIDDARR_PASSWORD=change-me
