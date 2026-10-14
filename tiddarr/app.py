@@ -601,12 +601,6 @@ def services_list():
 def service_connect(sid):
     b = body()
     svc = services.get(sid)
-    if sid == "spotify":
-        if b.get("callback"):
-            svc.finish(b["callback"])
-            return jsonify(svc.info())
-        redirect = (b.get("redirect_uri") or "").strip() or "http://127.0.0.1:8888/callback"
-        return jsonify(url=svc.auth_url(b["client_id"].strip(), redirect))
     if sid == "deezer":
         svc.connect(b.get("value", ""))
     elif sid == "youtube":
@@ -616,16 +610,6 @@ def service_connect(sid):
     else:
         return jsonify(error="nothing to connect"), 400
     return jsonify(svc.info())
-
-
-@app.get("/api/connect/spotify/callback")
-def spotify_callback():
-    """Direct redirect target when Tiddarr is reachable via https/loopback."""
-    try:
-        services.get("spotify").finish(request.url)
-    except services.ServiceError as e:
-        return f"Spotify login failed: {e}", 400
-    return Response('<meta http-equiv="refresh" content="0;url=/#/settings">Spotify connected.', mimetype="text/html")
 
 
 @app.post("/api/services/<sid>/disconnect")
@@ -736,7 +720,11 @@ def sync_playlist(pl_id):
 
 @app.delete("/api/playlists/<int:pl_id>")
 def delete_playlist(pl_id):
-    db.run("DELETE FROM playlists WHERE id=?", (pl_id,))
+    pl = db.one("SELECT * FROM playlists WHERE id=?", (pl_id,))
+    if pl:
+        playlists.remove_m3u(pl)
+        db.run("DELETE FROM playlists WHERE id=?", (pl_id,))
+        bg(integrations.notify_all)
     return jsonify(ok=True)
 
 

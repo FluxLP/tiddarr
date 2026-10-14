@@ -7,6 +7,7 @@
 
 import json
 import logging
+import threading
 import time
 
 import requests
@@ -161,8 +162,26 @@ class MusicAssistant:
 INTEGRATIONS = {i.id: i for i in (Jellyfin(), MusicAssistant())}
 
 
-def notify_all():
-    """Called when downloads (or deletions) changed the library."""
+DEBOUNCE = 30  # seconds; many changes in a row cause a single rescan
+_timer: threading.Timer | None = None
+_timer_lock = threading.Lock()
+
+
+def _sync_all():
+    global _timer
+    with _timer_lock:
+        _timer = None
     for i in INTEGRATIONS.values():
         if i.info().get("configured") and i.info().get("enabled", True):
             i.sync()
+
+
+def notify_all():
+    """Called when downloads, deletions or playlists changed the library."""
+    global _timer
+    with _timer_lock:
+        if _timer:
+            _timer.cancel()
+        _timer = threading.Timer(DEBOUNCE, _sync_all)
+        _timer.daemon = True
+        _timer.start()

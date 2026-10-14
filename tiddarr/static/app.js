@@ -70,12 +70,13 @@ const STRINGS = {
     owned: "In library", chart_sources: "Chart countries", chart_size: "Chart length", chart_types: "Chart types", chart_artists: "Artists",
     chart_help: "Charts come from your linked accounts (Tidal, Deezer). Album and artist charts of a country are derived from its song chart.", songs_in_chart: "songs in the chart", best: "best",
     sug_empty: "Not enough data yet. Link your artists with Tidal (Settings → Tasks → Artwork & metadata).",
-    pl_url: "Link", pl_csv: "CSV / list", my_playlists: "My playlists", saved_playlists: "Saved & monitored", search_playlists: "Search public playlists", paste_link: "Playlist link from Tidal, Spotify, Deezer, YouTube Music or Apple Music",
+    pl_url: "Link", pl_csv: "CSV / list",
+    sp_exportify: "No developer account needed: sign in at Exportify with your Spotify account, export your playlists and Liked Songs as CSV (\"Export All\" gives a ZIP – unpack it) and import the files here.",
+    sp_link_hint: "Spotify links can't be read directly. Export the playlist with Exportify and import the CSV:", files_imported: "playlists imported", my_playlists: "My playlists", saved_playlists: "Saved & monitored", search_playlists: "Search public playlists", paste_link: "Playlist link from Tidal, Deezer, YouTube Music or Apple Music",
     open: "Open", download_all: "Download all", monitor_playlist: "Download & keep in sync", synced: "Synced", tracks_owned: "in library",
-    not_found: "not found", import_list: "Import list / CSV", import_help: "CSV export (Exportify, TuneMyMusic, Soundiiz …) – e.g. from Amazon Music – or one \"Artist - Title\" per line.",
+    not_found: "not found", import_list: "Import list / CSV", import_help: "Spotify: CSV files from Exportify (several at once). Amazon Music & others: CSV from TuneMyMusic or Soundiiz. Or one \"Artist - Title\" per line.",
     import_name: "Playlist name", import_go: "Import & download", choose_file: "Choose file", services: "Services & import",
-    connect_btn: "Connect", disconnect: "Disconnect", connected_as: "Connected as", sp_help: "Create a free app at developer.spotify.com/dashboard, add the redirect URI below to it and paste the Client ID here.",
-    sp_paste: "After logging in, Spotify redirects to a page that does not load. Copy that page's full address and paste it here:", redirect_uri: "Redirect URI",
+    connect_btn: "Connect", disconnect: "Disconnect", connected_as: "Connected as",
     dz_help: "Paste your Deezer profile link (deezer.com/profile/…). Your playlists must be public.", yt_help: "Public playlists work without login. For your library paste the request headers of music.youtube.com from your browser's developer tools.",
     yt_missing: "Needs the Python package ytmusicapi on the server.", apple_help: "Paste shared playlist links on the Playlists page.", amazon_help: "No public API – export your playlists as CSV (e.g. with TuneMyMusic) and import them on the Playlists page.",
     write_m3u: "Write .m3u8 playlist file", sync_now: "Sync now", delete: "Delete", delete_artist: "Delete artist", delete_album: "Delete album", delete_track: "Delete song",
@@ -149,12 +150,13 @@ const STRINGS = {
     owned: "In Bibliothek", chart_sources: "Chart-Länder", chart_size: "Länge der Charts", chart_types: "Chart-Arten", chart_artists: "Interpreten",
     chart_help: "Charts kommen von deinen verknüpften Konten (Tidal, Deezer). Album- und Interpreten-Charts eines Landes werden aus den Song-Charts abgeleitet.", songs_in_chart: "Songs in den Charts", best: "beste",
     sug_empty: "Noch zu wenig Daten. Verknüpfe deine Interpreten mit Tidal (Einstellungen → Aufgaben → Artwork & Metadaten).",
-    pl_url: "Link", pl_csv: "CSV / Liste", my_playlists: "Meine Playlists", saved_playlists: "Gespeichert & überwacht", search_playlists: "Öffentliche Playlists suchen", paste_link: "Playlist-Link von Tidal, Spotify, Deezer, YouTube Music oder Apple Music",
+    pl_url: "Link", pl_csv: "CSV / Liste",
+    sp_exportify: "Kein Developer-Account nötig: Bei Exportify mit deinem Spotify-Konto anmelden, Playlists und Lieblingssongs als CSV exportieren (\"Export All\" liefert eine ZIP-Datei – entpacken) und die Dateien hier importieren.",
+    sp_link_hint: "Spotify-Links lassen sich nicht direkt lesen. Exportiere die Playlist mit Exportify und importiere die CSV:", files_imported: "Playlists importiert", my_playlists: "Meine Playlists", saved_playlists: "Gespeichert & überwacht", search_playlists: "Öffentliche Playlists suchen", paste_link: "Playlist-Link von Tidal, Deezer, YouTube Music oder Apple Music",
     open: "Öffnen", download_all: "Alle herunterladen", monitor_playlist: "Laden & synchron halten", synced: "Synchronisiert", tracks_owned: "in Bibliothek",
-    not_found: "nicht gefunden", import_list: "Liste / CSV importieren", import_help: "CSV-Export (Exportify, TuneMyMusic, Soundiiz …) – z. B. aus Amazon Music – oder eine Zeile \"Interpret - Titel\" pro Song.",
+    not_found: "nicht gefunden", import_list: "Liste / CSV importieren", import_help: "Spotify: CSV-Dateien von Exportify (auch mehrere auf einmal). Amazon Music & andere: CSV von TuneMyMusic oder Soundiiz. Oder eine Zeile \"Interpret - Titel\" pro Song.",
     import_name: "Name der Playlist", import_go: "Importieren & herunterladen", choose_file: "Datei wählen", services: "Dienste & Import",
-    connect_btn: "Verbinden", disconnect: "Trennen", connected_as: "Verbunden als", sp_help: "Erstelle eine kostenlose App unter developer.spotify.com/dashboard, trage dort die Redirect-URI unten ein und füge hier die Client-ID ein.",
-    sp_paste: "Nach der Anmeldung leitet Spotify auf eine Seite weiter, die nicht lädt. Kopiere die komplette Adresse dieser Seite und füge sie hier ein:", redirect_uri: "Redirect-URI",
+    connect_btn: "Verbinden", disconnect: "Trennen", connected_as: "Verbunden als",
     dz_help: "Deezer-Profillink einfügen (deezer.com/profile/…). Deine Playlists müssen öffentlich sein.", yt_help: "Öffentliche Playlists gehen ohne Login. Für deine Bibliothek die Request-Header von music.youtube.com aus den Entwicklertools des Browsers einfügen.",
     yt_missing: "Benötigt das Python-Paket ytmusicapi auf dem Server.", apple_help: "Geteilte Playlist-Links auf der Playlists-Seite einfügen.", amazon_help: "Keine öffentliche API – Playlists als CSV exportieren (z. B. mit TuneMyMusic) und auf der Playlists-Seite importieren.",
     write_m3u: ".m3u8-Playlistdatei schreiben", sync_now: "Jetzt synchronisieren", delete: "Löschen", delete_artist: "Interpret löschen", delete_album: "Album löschen", delete_track: "Song löschen",
@@ -723,7 +725,7 @@ function parsePlaylistLink(v) {
   v = v.trim();
   let m;
   if ((m = v.match(/tidal\.com\/(?:browse\/)?playlist\/([0-9a-f-]{36})/i))) return ["tidal", m[1]];
-  if ((m = v.match(/open\.spotify\.com\/(?:intl-\w+\/)?playlist\/(\w+)/))) return ["spotify", m[1]];
+  if (/open\.spotify\.com|spotify:/.test(v)) return ["spotify", null];
   if ((m = v.match(/deezer\.com\/(?:\w+\/)?playlist\/(\d+)/))) return ["deezer", m[1]];
   if ((m = v.match(/[?&]list=([\w-]+)/))) return ["youtube", m[1]];
   if (v.startsWith("https://music.apple.com/")) return ["apple", v];
@@ -752,8 +754,8 @@ async function viewPlaylists(_, alive) {
       <form class="toolbar" id="plSearch" data-mode="search" style="margin:0"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
         <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("search"))}</button></form>
       <form class="toolbar" id="plLink" data-mode="url" style="margin:0"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}" style="flex:1;min-width:200px"><button class="btn primary">${esc(t("open"))}</button></form>
-      <div data-mode="csv"><p class="muted small" style="margin-top:0">${esc(t("import_help"))}</p>
-        <div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"><label class="btn">${esc(t("choose_file"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" hidden></label></div>
+      <div data-mode="csv"><p class="muted small" style="margin-top:0">${esc(t("import_help"))} <a href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a></p>
+        <div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"><label class="btn">${esc(t("choose_file"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" multiple hidden></label></div>
         <textarea id="impText" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
         <div class="toolbar" style="margin:10px 0 0"><button class="btn primary" id="impGo">${esc(t("import_go"))}</button></div></div>
       <div id="plResults" style="margin-top:14px"></div>
@@ -797,9 +799,30 @@ async function viewPlaylists(_, alive) {
     e.preventDefault();
     const r = parsePlaylistLink($("#plUrl").value);
     if (!r) return toast(t("no_results"), true);
+    if (r[0] === "spotify") {
+      $("#plResults").innerHTML = `<div class="banner">${esc(t("sp_link_hint"))} <a class="btn small primary" href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a> <button class="btn small" id="toCsv">${esc(t("pl_csv"))}</button></div>`;
+      $("#toCsv").onclick = () => setMode("csv");
+      return;
+    }
     location.hash = `#/playlist/${r[0]}/${encodeURIComponent(r[1])}`;
   };
-  $("#impFile").onchange = async (e) => { const f = e.target.files[0]; if (!f) return; $("#impText").value = await f.text(); if (!$("#impName").value) $("#impName").value = f.name.replace(/\.\w+$/, ""); };
+  const fileName = (f) => f.name.replace(/\.\w+$/, "").replace(/_/g, " ");
+  $("#impFile").onchange = async (e) => {
+    const files = [...e.target.files];
+    if (files.length === 1) {
+      $("#impText").value = await files[0].text();
+      if (!$("#impName").value) $("#impName").value = fileName(files[0]);
+      return;
+    }
+    // several Exportify files: one playlist per file
+    let n = 0;
+    for (const f of files) {
+      try { await post("/import/text", { name: fileName(f), text: await f.text() }); n++; }
+      catch (err) { toast(`${f.name}: ${err.message}`, true); }
+    }
+    toast(`${n} ${t("files_imported")}`);
+    route();
+  };
   $("#impGo").onclick = async () => {
     const r = await act(() => post("/import/text", { name: $("#impName").value || "Import", text: $("#impText").value }));
     toast(`${r.tracks} ${t("songs")} → ${t("added_queue")}`);
@@ -1080,15 +1103,11 @@ async function renderServices() {
   if (!box) return;
   const list = await api("/services");
   const by = Object.fromEntries(list.map((x) => [x.id, x]));
-  const sp = by.spotify, dz = by.deezer, yt = by.youtube;
+  const dz = by.deezer, yt = by.youtube;
   const row = (name, body) => `<div class="form-row" style="align-items:start"><label><b style="color:var(--text)">${esc(name)}</b></label><div>${body}</div></div>`;
   box.innerHTML =
-    row("Spotify", sp.connected
-      ? `${esc(t("connected_as"))} <b>${esc(sp.user || "")}</b> <button class="btn small" data-disc="spotify">${esc(t("disconnect"))}</button>`
-      : `<p class="muted small" style="margin:0 0 8px">${esc(t("sp_help"))}</p>
-         <div class="toolbar" style="margin:0 0 6px"><input type="text" id="spClient" placeholder="Client ID" value="${esc(sp.client_id || "")}" style="flex:1;min-width:200px"></div>
-         <div class="toolbar" style="margin:0 0 6px"><span class="muted small">${esc(t("redirect_uri"))}</span><input type="text" id="spRedirect" value="${esc(sp.redirect_uri)}" style="flex:1;min-width:200px"><button class="btn primary" id="spGo">${esc(t("connect_btn"))}</button></div>
-         <div id="spPaste" hidden><p class="muted small">${esc(t("sp_paste"))}</p><div class="toolbar" style="margin:0"><input type="text" id="spCb" placeholder="http://127.0.0.1:8888/callback?code=…" style="flex:1"><button class="btn primary" id="spFinish">OK</button></div></div>`) +
+    row("Spotify", `<p class="muted small" style="margin:0 0 8px">${esc(t("sp_exportify"))}</p>
+      <div class="toolbar" style="margin:0"><a class="btn primary" href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a><a class="btn" href="#/playlists" data-csv-tab>${esc(t("pl_csv"))} →</a></div>`) +
     row("Deezer", dz.connected
       ? `${esc(t("connected_as"))} <b>${esc(dz.user || dz.user_id)}</b> <button class="btn small" data-disc="deezer">${esc(t("disconnect"))}</button>`
       : `<p class="muted small" style="margin:0 0 8px">${esc(t("dz_help"))}</p><div class="toolbar" style="margin:0"><input type="text" id="dzVal" placeholder="https://www.deezer.com/profile/…" style="flex:1"><button class="btn primary" id="dzGo">${esc(t("connect_btn"))}</button></div>`) +
@@ -1096,15 +1115,10 @@ async function renderServices() {
       ? `<span class="badge ok">${esc(t("connected_as"))} Browser</span> <button class="btn small" data-disc="youtube">${esc(t("disconnect"))}</button>`
       : `<p class="muted small" style="margin:0 0 8px">${esc(t("yt_help"))}</p><textarea id="ytHeaders" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:inherit;padding:8px;font:12px ui-monospace,monospace"></textarea><div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="ytGo">${esc(t("connect_btn"))}</button></div>`) +
     row("Apple Music", `<span class="muted small">${esc(t("apple_help"))}</span> <a class="small" href="#/playlists">${esc(t("nav_playlists"))} →</a>`) +
-    row("Amazon Music", `<span class="muted small">${esc(t("amazon_help"))}</span> <a class="small" href="#/playlists">${esc(t("import_list"))} →</a>`);
+    row("Amazon Music", `<span class="muted small">${esc(t("amazon_help"))}</span> <a class="small" href="#/playlists" data-csv-tab>${esc(t("import_list"))} →</a>`);
 
+  box.querySelectorAll("[data-csv-tab]").forEach((a) => (a.onclick = () => localStorage.setItem("plMode", "csv")));
   box.querySelectorAll("[data-disc]").forEach((b) => (b.onclick = async () => { await act(() => post(`/services/${b.dataset.disc}/disconnect`)); renderServices(); }));
-  $("#spGo")?.addEventListener("click", async () => {
-    const r = await act(() => post("/services/spotify/connect", { client_id: $("#spClient").value, redirect_uri: $("#spRedirect").value }));
-    window.open(r.url, "_blank", "noopener");
-    $("#spPaste").hidden = false;
-  });
-  $("#spFinish")?.addEventListener("click", async () => { await act(() => post("/services/spotify/connect", { callback: $("#spCb").value }), "Spotify"); renderServices(); });
   $("#dzGo")?.addEventListener("click", async () => { await act(() => post("/services/deezer/connect", { value: $("#dzVal").value }), "Deezer"); renderServices(); });
   $("#ytGo")?.addEventListener("click", async () => { await act(() => post("/services/youtube/connect", { headers: $("#ytHeaders").value }), "YouTube Music"); renderServices(); });
 }

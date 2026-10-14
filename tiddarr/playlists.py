@@ -175,6 +175,10 @@ def sync(pl_id: int, download: bool = True):
                 log.warning("playlist track %s: %s", r["title"], e)
         db.run("UPDATE playlists SET last_sync=CURRENT_TIMESTAMP WHERE id=?", (pl_id,))
         write_m3u(pl_id)
+        # make the (new or changed) playlist show up in Music Assistant / Jellyfin
+        from . import integrations
+
+        integrations.notify_all()
     except (ServiceError, TidalError) as e:
         st["message"] = f"error: {e}"
         log.warning("sync playlist %s: %s", pl["name"], e)
@@ -215,6 +219,13 @@ def write_m3u(pl_id: int):
         (folder / f"{library.clean(pl['name'])}.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
     except OSError as e:
         log.warning("m3u %s: %s", pl["name"], e)
+
+
+def remove_m3u(pl: dict):
+    try:
+        (library.music_dir() / M3U_DIR / f"{library.clean(pl['name'])}.m3u8").unlink(missing_ok=True)
+    except OSError as e:
+        log.warning("remove m3u %s: %s", pl["name"], e)
 
 
 def refresh_m3u_all():

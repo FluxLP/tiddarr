@@ -6,15 +6,11 @@ Every service returns the same shapes:
 Credentials live in the settings table (data dir), never in the repo.
 """
 
-import base64
-import hashlib
 import html
 import json
 import logging
 import re
-import secrets
 import time
-import urllib.parse
 
 import requests
 
@@ -92,161 +88,6 @@ class TidalService:
             "artist_tidal_id": (t.get("artist") or {}).get("id"),
             "artist_picture": image((t.get("artist") or {}).get("picture"), 320),
         } for t in items]
-        return {**meta, "count": len(tracks), "tracks": tracks}
-
-
-# ====================================================================== Spotify
-
-class SpotifyService:
-    """Authorization Code + PKCE. Needs a (free) app from developer.spotify.com.
-
-    Spotify only allows https or loopback redirect URIs, so when Tiddarr runs
-    on a LAN address the user copies the URL of the (failing) redirect page
-    back into Tiddarr."""
-
-    id, name = "spotify", "Spotify"
-    can_search = True
-    SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
-    _pending: dict = {}
-
-    def cfg(self):
-        return _settings_json("spotify")
-
-    def save(self, cfg):
-        db.set_setting("spotify", json.dumps(cfg))
-
-    def connected(self):
-        return bool(self.cfg().get("refresh_token"))
-
-    def info(self):
-        c = self.cfg()
-        return {"connected": self.connected(), "client_id": c.get("client_id", ""),
-                "redirect_uri": c.get("redirect_uri") or "http://127.0.0.1:8888/callback", "user": c.get("user")}
-
-    def auth_url(self, client_id: str, redirect_uri: str) -> str:
-        verifier = secrets.token_urlsafe(64)[:96]
-        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        state = secrets.token_urlsafe(16)
-        self._pending.clear()
-        self._pending[state] = (verifier, client_id, redirect_uri)
-        cfg = self.cfg()
-        cfg.update(client_id=client_id, redirect_uri=redirect_uri)
-        self.save(cfg)
-        return "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode({
-            "client_id": client_id, "response_type": "code", "redirect_uri": redirect_uri,
-            "code_challenge_method": "S256", "code_challenge": challenge, "scope": self.SCOPES, "state": state,
-        })
-
-    def finish(self, callback_url_or_code: str, state: str | None = None):
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(callback_url_or_code).query)
-        code = (q.get("code") or [callback_url_or_code])[0]
-        state = (q.get("state") or [state])[0]
-        if q.get("error"):
-            raise ServiceError(q["error"][0])
-        pending = self._pending.get(state) if state else next(iter(self._pending.values()), None)
-        if not pending:
-            raise ServiceError("Login expired – please start again")
-        verifier, client_id, redirect_uri = pending
-        res = requests.post("https://accounts.spotify.com/api/token", data={
-            "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri,
-            "client_id": client_id, "code_verifier": verifier,
-        }, timeout=30)
-        if not res.ok:
-            raise ServiceError(f"Spotify: {res.json().get('error_description', res.text)}")
-        tok = res.json()
-        cfg = self.cfg()
-        cfg.update(access_token=tok["access_token"], refresh_token=tok["refresh_token"],
-                   expires_at=time.time() + tok["expires_in"] - 60)
-        self.save(cfg)
-        self._pending.clear()
-        me = self.get("me")
-        cfg = self.cfg()
-        cfg["user"] = me.get("display_name") or me.get("id")
-        self.save(cfg)
-
-    def disconnect(self):
-        cfg = self.cfg()
-        for k in ("access_token", "refresh_token", "expires_at", "user"):
-            cfg.pop(k, None)
-        self.save(cfg)
-
-    def _token(self):
-        cfg = self.cfg()
-        if not cfg.get("refresh_token"):
-            raise ServiceError("Spotify is not connected")
-        if cfg.get("expires_at", 0) > time.time():
-            return cfg["access_token"]
-        res = requests.post("https://accounts.spotify.com/api/token", data={
-            "grant_type": "refresh_token", "refresh_token": cfg["refresh_token"], "client_id": cfg["client_id"],
-        }, timeout=30)
-        if not res.ok:
-            raise ServiceError("Spotify session expired – please reconnect")
-        tok = res.json()
-        cfg.update(access_token=tok["access_token"], expires_at=time.time() + tok["expires_in"] - 60)
-        if tok.get("refresh_token"):
-            cfg["refresh_token"] = tok["refresh_token"]
-        self.save(cfg)
-        return cfg["access_token"]
-
-    def get(self, path, params=None):
-        url = path if path.startswith("http") else f"https://api.spotify.com/v1/{path}"
-        for _ in range(3):
-            res = requests.get(url, params=params, headers={"Authorization": f"Bearer {self._token()}"}, timeout=30)
-            if res.status_code == 429:
-                time.sleep(int(res.headers.get("Retry-After", "2")))
-                continue
-            if res.status_code == 404:
-                raise ServiceError("Spotify does not allow access to this playlist (Spotify-owned playlists are blocked for third-party apps)")
-            if not res.ok:
-                raise ServiceError(f"Spotify {res.status_code}: {res.text[:200]}")
-            return res.json()
-        raise ServiceError("Spotify rate limit")
-
-    def _paged(self, path, params=None):
-        data = self.get(path, {**(params or {}), "limit": 50})
-        items = data.get("items", [])
-        while data.get("next"):
-            data = self.get(data["next"])
-            items += data.get("items", [])
-        return items
-
-    def _pl(self, p):
-        return {
-            "service": "spotify", "id": p["id"], "name": p["name"],
-            "owner": (p.get("owner") or {}).get("display_name"),
-            "image": ((p.get("images") or [{}])[0] or {}).get("url"),
-            "count": (p.get("tracks") or p.get("items") or {}).get("total"),
-            "url": (p.get("external_urls") or {}).get("spotify"),
-        }
-
-    def my_playlists(self):
-        out = [self._pl(p) for p in self._paged("me/playlists") if p]
-        liked = self.get("me/tracks", {"limit": 1})
-        out.insert(0, {"service": "spotify", "id": "liked", "name": "Lieblingssongs / Liked Songs", "owner": self.cfg().get("user"),
-                       "image": None, "count": liked.get("total"), "url": None, "library": True})
-        return out
-
-    def search(self, q):
-        res = self.get("search", {"q": q, "type": "playlist", "limit": 30})
-        return [self._pl(p) for p in res.get("playlists", {}).get("items", []) if p]
-
-    @staticmethod
-    def _track(t):
-        return {
-            "title": t["name"], "artist": ", ".join(a["name"] for a in t.get("artists") or []),
-            "album": (t.get("album") or {}).get("name"), "isrc": (t.get("external_ids") or {}).get("isrc"),
-            "duration": round((t.get("duration_ms") or 0) / 1000),
-            "cover": (((t.get("album") or {}).get("images") or [{}])[-1] or {}).get("url"),
-        }
-
-    def playlist(self, pid):
-        if pid == "liked":
-            items = self._paged("me/tracks")
-            meta = {"service": "spotify", "id": pid, "name": "Lieblingssongs / Liked Songs", "owner": self.cfg().get("user"), "image": None, "url": None}
-        else:
-            meta = self._pl(self.get(f"playlists/{pid}", {"fields": "id,name,owner(display_name),images,external_urls,tracks(total)"}))
-            items = self._paged(f"playlists/{pid}/tracks")
-        tracks = [self._track(i["track"]) for i in items if i.get("track") and i["track"].get("type") == "track"]
         return {**meta, "count": len(tracks), "tracks": tracks}
 
 
@@ -484,8 +325,8 @@ class AppleService:
 # ============================================================ text / CSV import
 
 def parse_text(text: str) -> list[dict]:
-    """Accepts CSV exports (Exportify, TuneMyMusic, Soundiiz …) or plain
-    'Artist - Title' lines."""
+    """Accepts CSV exports (Exportify for Spotify, TuneMyMusic, Soundiiz …)
+    or plain 'Artist - Title' lines."""
     import csv
     import io
 
@@ -503,14 +344,24 @@ def parse_text(text: str) -> list[dict]:
                     return v.strip()
             return None
 
+        def seconds(row):
+            ms = col(row, "duration (ms)", "duration_ms", "track duration (ms)")
+            if ms and ms.isdigit():
+                return round(int(ms) / 1000)
+            sec = col(row, "duration", "length", "duration (s)")
+            if sec and ":" in sec:
+                m, _, x = sec.rpartition(":")
+                return int(m or 0) * 60 + int(float(x or 0))
+            return int(float(sec)) if sec and sec.replace(".", "", 1).isdigit() else None
+
         out = []
         for r in rows:
             title = col(r, "track name", "title", "song", "song name", "name", "track")
             artist = col(r, "artist name(s)", "artist name", "artist", "artists", "artist(s)")
             if title:
                 out.append({"title": title, "artist": (artist or "").replace(";", ","),
-                            "album": col(r, "album name", "album", "album title"), "isrc": col(r, "isrc"),
-                            "duration": None})
+                            "album": col(r, "album name", "album", "album title"),
+                            "isrc": col(r, "isrc", "track isrc", "isrc code"), "duration": seconds(r)})
         return out
     out = []
     for l in lines:
@@ -520,7 +371,7 @@ def parse_text(text: str) -> list[dict]:
     return out
 
 
-SERVICES = {s.id: s for s in (TidalService(), SpotifyService(), DeezerService(), YouTubeService(), AppleService())}
+SERVICES = {s.id: s for s in (TidalService(), DeezerService(), YouTubeService(), AppleService())}
 
 
 def get(service_id: str):

@@ -36,12 +36,14 @@ automatically. Monitored artists are checked for new releases on a schedule.
   artists you listen to, new releases, similar artists, popular songs you
   don't have), charts from your linked accounts (songs, albums, artists per
   country and worldwide) and new releases on Tidal. One click downloads.
-- **Playlists & import** – browse your playlists on Tidal, Spotify, Deezer
-  and YouTube Music, search public playlists, open shared Apple Music links
-  or import CSV/text lists (e.g. Amazon Music via TuneMyMusic). Download
+- **Playlists & import** – browse your playlists on Tidal, Deezer and
+  YouTube Music, search public playlists, open shared Apple Music links or
+  import CSV/text lists (Spotify via Exportify, Amazon Music via
+  TuneMyMusic). Download
   whole playlists or single songs; songs are matched to Tidal by ISRC or
   artist/title/length. Monitored playlists stay in sync and get an `.m3u8`
-  file in `<music>/_Playlists`.
+  file in `<music>/_Playlists`; Music Assistant and Jellyfin pick them up
+  automatically.
 - **Music source for players** – Tiddarr speaks the Open Subsonic API, so it
   can be added as a music provider in Music Assistant ("Open Subsonic Media
   Server Library") and in Subsonic apps (Symfonium, Amperfy, play:Sub,
@@ -122,7 +124,7 @@ country are derived from its song chart.
 | Service | What works | Needs |
 | --- | --- | --- |
 | Tidal | own playlists, favourites, public search | Tidal login |
-| Spotify | own playlists, liked songs, public search | free app at developer.spotify.com (Client ID) |
+| Spotify | all playlists and Liked Songs via [Exportify](https://exportify.net) CSV export | – (no developer account) |
 | Deezer | public playlists/favourites of a profile, search | profile link |
 | YouTube Music | public playlists, search; library with browser headers | – (ytmusicapi is included) |
 | Apple Music | shared playlist links | – |
