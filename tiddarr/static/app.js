@@ -291,7 +291,8 @@ const routes = [
   [/^#\/artist\/(\d+)$/, viewArtist, "artists"],
   [/^#\/albums$/, viewAlbums, "albums"],
   [/^#\/album\/(\d+)$/, viewAlbum, "albums"],
-  [/^#\/tracks(?:\/(\w+))?$/, viewTracks, "tracks"],
+  [/^#\/tracks$/, viewTracks, "tracks"],
+  [/^#\/stale$/, (_, alive) => viewStale(alive), "stale"],
   [/^#\/add(?:\/(.*))?$/, viewAdd, "add"],
   [/^#\/tidal\/artist\/(\d+)$/, viewTidalArtist, "add"],
   [/^#\/discover(?:\/(\w+))?$/, viewDiscover, "discover"],
@@ -342,7 +343,7 @@ $("#collapseBtn").onclick = () => {
   try { localStorage.setItem("sidebarCollapsed", on ? "1" : "0"); } catch { /* no storage */ }
 };
 // tooltips for the collapsed sidebar
-document.querySelectorAll(".sidebar a[data-nav]").forEach((a) => (a.title = t("nav_" + a.dataset.nav)));
+document.querySelectorAll(".sidebar a[data-nav]").forEach((a) => (a.title = t(a.dataset.nav === "stale" ? "stale_tab" : "nav_" + a.dataset.nav)));
 $("#topSearch").addEventListener("submit", (e) => e.preventDefault());
 $("#topSearchInput").addEventListener("input", (e) => {
   state.libQuery = e.target.value.trim().toLowerCase();
@@ -610,9 +611,6 @@ async function identifyDialog(albumId, done) {
 
 // ------------------------------------------------------------------ tracks
 
-const TRACK_TABS = [["all", "all_songs"], ["stale", "stale_tab"]];
-const trackTabs = (tab) => `<div class="tabs">${TRACK_TABS.map(([id, k]) => `<a href="#/tracks/${id}" class="${id === tab ? "on" : ""}">${esc(t(k))}</a>`).join("")}</div>`;
-
 function ago(ts) {
   if (!ts) return t("never");
   const d = Math.floor((Date.now() / 1000 - ts) / 86400);
@@ -628,8 +626,7 @@ async function viewStale(alive) {
     if (!alive()) return;
     const sel = new Set();
     const trackingDays = Math.floor((Date.now() / 1000 - d.since) / 86400);
-    main.innerHTML = `${trackTabs("stale")}
-      <div class="toolbar"><h1>${esc(t("stale_title").replace("{n}", d.days))}</h1><span class="muted">${d.items.length} ${esc(t("songs"))} · ${bytes(d.size)}</span><span class="spacer"></span>
+    main.innerHTML = `<div class="toolbar"><h1>${esc(t("stale_title").replace("{n}", d.days))}</h1><span class="muted">${d.items.length} ${esc(t("songs"))} · ${bytes(d.size)}</span><span class="spacer"></span>
         <span class="muted small" id="selInfo"></span>
         <button class="btn" id="keepSel" disabled>${esc(t("keep"))}</button><button class="btn danger" id="delSel" disabled>${esc(t("delete"))}</button></div>
       <p class="muted small">${esc(t("stale_help"))} <a href="#/settings/library">${esc(t("nav_settings"))} →</a></p>
@@ -667,11 +664,10 @@ async function viewStale(alive) {
   await load();
 }
 
-async function viewTracks(tab, alive) {
-  if (tab === "stale") return viewStale(alive);
+async function viewTracks(_, alive) {
   let offset = 0, items = [], total = 0;
   const sel = new Set();
-  main.innerHTML = `${loginBanner()}${trackTabs("all")}<div class="toolbar"><h1>${esc(t("nav_tracks"))}</h1><span class="muted" id="count"></span><span class="spacer"></span>
+  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_tracks"))}</h1><span class="muted" id="count"></span><span class="spacer"></span>
     <span class="muted small" id="selInfo"></span><button class="btn" id="selAdd" disabled>${esc(t("add_to_playlist"))}</button></div>
     <table class="list" id="tbl"></table><div style="text-align:center;margin-top:14px"><button class="btn" id="more" hidden>${esc(t("load_more"))}</button></div>`;
   const load = async (reset) => {
