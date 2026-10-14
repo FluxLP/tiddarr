@@ -53,6 +53,6 @@ DEFAULT_SETTINGS = {
     "chart_countries": "world,at,de",
     "chart_types": "song,album,artist",
     "chart_size": "50",
-    "jellyfin_url": "",
+    "jellyfin_url": "",  # legacy, moved to the integrations settings
     "jellyfin_api_key": "",
 }

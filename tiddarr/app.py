@@ -4,9 +4,10 @@ import logging
 import threading
 from pathlib import Path
 
+import requests
 from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 
-from . import __version__, artwork, config, db, downloader, library, metadata, playlists, scheduler, services, suggest
+from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, scheduler, services, suggest
 from .tidal import TidalError, image, tidal
 
 log = logging.getLogger(__name__)
@@ -327,7 +328,10 @@ def artist_search_missing(artist_id):
 
 def _delete(fn, *args):
     try:
-        return jsonify(fn(*args, files=request.args.get("files") == "1"))
+        res = fn(*args, files=request.args.get("files") == "1")
+        if res.get("tracks"):
+            bg(integrations.notify_all)
+        return jsonify(res)
     except PermissionError as e:
         return jsonify(error=f"Permission denied: {e}"), 403
 
@@ -731,6 +735,52 @@ def sync_playlist(pl_id):
 def delete_playlist(pl_id):
     db.run("DELETE FROM playlists WHERE id=?", (pl_id,))
     return jsonify(ok=True)
+
+
+# ------------------------------------------------------------ integrations
+
+@app.get("/api/integrations")
+def integrations_list():
+    return jsonify([
+        {"id": i.id, "name": i.name, **i.info(), "state": integrations.state.get(i.id)}
+        for i in integrations.INTEGRATIONS.values()
+    ])
+
+
+@app.put("/api/integrations/<iid>")
+def integration_configure(iid):
+    i = integrations.INTEGRATIONS.get(iid) or abort(404)
+    b = body()
+    try:
+        if iid == "jellyfin":
+            i.configure(b.get("url", ""), b.get("api_key", ""), bool(b.get("enabled", True)))
+        else:
+            i.configure(b.get("url", ""), b.get("token", ""), b.get("username", ""), b.get("password", ""), bool(b.get("enabled", True)))
+    except (ValueError, requests.RequestException) as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(i.info())
+
+
+@app.patch("/api/integrations/<iid>")
+def integration_toggle(iid):
+    i = integrations.INTEGRATIONS.get(iid) or abort(404)
+    cfg = i.cfg()
+    cfg["enabled"] = bool(body().get("enabled"))
+    integrations._save(iid, cfg)
+    return jsonify(i.info())
+
+
+@app.delete("/api/integrations/<iid>")
+def integration_remove(iid):
+    (integrations.INTEGRATIONS.get(iid) or abort(404)).remove()
+    return jsonify(ok=True)
+
+
+@app.post("/api/integrations/<iid>/sync")
+def integration_sync(iid):
+    i = integrations.INTEGRATIONS.get(iid) or abort(404)
+    i.sync()
+    return jsonify(integrations.state.get(iid) or {})
 
 
 # ------------------------------------------------------------------- tasks

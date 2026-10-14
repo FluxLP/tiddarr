@@ -7,8 +7,6 @@ import subprocess
 import threading
 import time
 
-import requests
-
 from . import artwork, db, library
 from .config import TIDDL_BIN
 from .tidal import TidalError, tidal
@@ -189,16 +187,6 @@ def _run(job: dict):
         artwork.apply_artist_art(artist["id"])
 
 
-def _notify_jellyfin():
-    url, key = db.get_setting("jellyfin_url").rstrip("/"), db.get_setting("jellyfin_api_key")
-    if not url or not key:
-        return
-    try:
-        requests.post(f"{url}/Library/Refresh", headers={"X-Emby-Token": key}, timeout=15)
-    except requests.RequestException as e:
-        log.warning("jellyfin refresh failed: %s", e)
-
-
 def worker():
     did_work = False
     while True:
@@ -207,8 +195,10 @@ def worker():
             if did_work:
                 from . import playlists
 
+                from . import integrations
+
                 playlists.refresh_m3u_all()
-                _notify_jellyfin()
+                integrations.notify_all()
                 did_work = False
             _wake.wait(30)
             _wake.clear()

@@ -34,7 +34,7 @@ const STRINGS = {
     quality: "Quality", album_types: "Album types to monitor", monitor_new_default: "Monitor new releases of added artists",
     refresh_hours: "Check for new releases every (hours)", scan_hours: "Rescan music folder every (hours)",
     threads: "Parallel track downloads", jellyfin: "Jellyfin (optional)", jellyfin_url: "Jellyfin URL", jellyfin_key: "API key",
-    jellyfin_help: "Triggers a library scan after downloads finished.",
+    jellyfin_help: "Triggers a library scan after downloads finished. Create an API key in Jellyfin under Dashboard → API keys.",
     tasks: "Tasks", scan_library: "Scan music folder", scan_help: "Reads all files in the music folder into the library.",
     auto_match: "Link artists with Tidal", auto_match_help: "Matches artist folders to Tidal artists by name. Nothing is monitored or downloaded.",
     refresh_all: "Check monitored artists now", refresh_all_help: "Looks for new releases and queues missing albums.",
@@ -53,7 +53,11 @@ const STRINGS = {
     artwork_help: "Links artists, identifies albums (ISRC/name) and adds missing covers to files, cover.jpg and artist folder.jpg.",
     embed_artwork: "Embed covers into audio files", folder_artwork: "Write cover.jpg / folder.jpg",
     artwork_settings: "Artwork", step_artists: "Linking artists", step_albums: "Identifying albums", step_artwork: "Adding covers", step_artists_art: "Artist pictures",
-    unmatched_badge: "Not matched", search: "Search", tab_accounts: "Accounts",
+    unmatched_badge: "Not matched", search: "Search", tab_accounts: "Accounts", tab_integrations: "Integrations",
+    integrations_help: "Media servers and players that are told about new music right after downloads finished.",
+    auto_sync: "Sync automatically after downloads", ma_sources: "Synced sources", ma_no_fs: "Music Assistant has no filesystem music source. Add your music folder there (Settings → Music providers → Filesystem) so it can see Tiddarr's downloads.",
+    ma_help: "Music Assistant 2.7+ needs a login. Either create a long-lived token in Music Assistant (Settings → Profile → Tokens) or enter username and password once – Tiddarr then creates a token itself and does not store the password.",
+    ma_token: "Long-lived token", ma_or_login: "…or login", ma_login_help: "Only used once to create a token.", optional: "optional", username: "Username", password: "Password",
     nav_discover: "Discover", for_you: "For you", charts: "Charts", new_on_tidal: "New on Tidal",
     sug_complete: "Complete your collection", sug_complete_help: "Albums of artists you listen to a lot that you don't have yet.",
     sug_recent: "New releases of your artists", sug_similar: "Artists you might like", because: "because of",
@@ -104,7 +108,7 @@ const STRINGS = {
     quality: "Qualität", album_types: "Zu überwachende Albumtypen", monitor_new_default: "Neue Releases hinzugefügter Interpreten überwachen",
     refresh_hours: "Neue Releases prüfen alle (Stunden)", scan_hours: "Musikordner scannen alle (Stunden)",
     threads: "Parallele Track-Downloads", jellyfin: "Jellyfin (optional)", jellyfin_url: "Jellyfin-URL", jellyfin_key: "API-Schlüssel",
-    jellyfin_help: "Startet nach abgeschlossenen Downloads einen Bibliotheks-Scan.",
+    jellyfin_help: "Startet nach abgeschlossenen Downloads einen Bibliotheks-Scan. API-Schlüssel in Jellyfin unter Dashboard → API-Schlüssel erstellen.",
     tasks: "Aufgaben", scan_library: "Musikordner scannen", scan_help: "Liest alle Dateien im Musikordner in die Bibliothek ein.",
     auto_match: "Interpreten mit Tidal verknüpfen", auto_match_help: "Ordnet Interpreten-Ordner per Name Tidal-Interpreten zu. Es wird nichts überwacht oder geladen.",
     refresh_all: "Überwachte Interpreten jetzt prüfen", refresh_all_help: "Sucht neue Releases und reiht fehlende Alben ein.",
@@ -123,7 +127,11 @@ const STRINGS = {
     artwork_help: "Verknüpft Interpreten, erkennt Alben (ISRC/Name) und ergänzt fehlende Cover in Dateien, cover.jpg und folder.jpg der Interpreten.",
     embed_artwork: "Cover in Audiodateien einbetten", folder_artwork: "cover.jpg / folder.jpg schreiben",
     artwork_settings: "Artwork", step_artists: "Interpreten verknüpfen", step_albums: "Alben erkennen", step_artwork: "Cover ergänzen", step_artists_art: "Interpretenbilder",
-    unmatched_badge: "Nicht zugeordnet", search: "Suchen", tab_accounts: "Konten",
+    unmatched_badge: "Nicht zugeordnet", search: "Suchen", tab_accounts: "Konten", tab_integrations: "Integrationen",
+    integrations_help: "Medienserver und Player, die nach abgeschlossenen Downloads sofort über neue Musik informiert werden.",
+    auto_sync: "Nach Downloads automatisch abgleichen", ma_sources: "Abgeglichene Quellen", ma_no_fs: "Music Assistant hat keine Dateisystem-Musikquelle. Füge dort deinen Musikordner hinzu (Einstellungen → Musikanbieter → Dateisystem), damit es Tiddarrs Downloads sieht.",
+    ma_help: "Music Assistant ab 2.7 braucht eine Anmeldung. Entweder in Music Assistant einen Long-lived Token erstellen (Einstellungen → Profil → Tokens) oder einmalig Benutzername und Passwort eingeben – Tiddarr erstellt dann selbst einen Token und speichert das Passwort nicht.",
+    ma_token: "Long-lived Token", ma_or_login: "…oder Anmeldung", ma_login_help: "Wird nur einmal zum Erstellen eines Tokens verwendet.", optional: "optional", username: "Benutzername", password: "Passwort",
     nav_discover: "Vorschläge", for_you: "Für dich", charts: "Charts", new_on_tidal: "Neu auf Tidal",
     sug_complete: "Sammlung vervollständigen", sug_complete_help: "Alben von Interpreten, die du viel hörst, die dir noch fehlen.",
     sug_recent: "Neue Releases deiner Interpreten", sug_similar: "Interpreten, die dir gefallen könnten", because: "wegen",
@@ -998,6 +1006,47 @@ async function viewActivity(_, alive) {
   viewTimer = setInterval(load, 3000);
 }
 
+async function renderIntegrations() {
+  const box = $("#integrations");
+  if (!box) return;
+  const list = await api("/integrations");
+  const by = Object.fromEntries(list.map((x) => [x.id, x]));
+  const status = (x) => x.state ? `<span class="badge ${x.state.ok ? "ok" : "err"}">${esc(new Date(x.state.last * 1000).toLocaleString())}: ${esc(x.state.message)}</span>` : "";
+  const connectedHead = (x, extra) => `<div class="stats" style="margin-bottom:10px"><span>${esc(t("connected_as"))} <b>${esc(x.server || x.url)}</b></span>${x.user ? `<span>${esc(x.user)}</span>` : ""}<span class="muted">${esc(x.url)}</span></div>${extra || ""}
+    <div class="toolbar" style="margin:0"><label class="btn"><input type="checkbox" data-enable="${x.id}" ${x.enabled ? "checked" : ""}> ${esc(t("auto_sync"))}</label>
+      <button class="btn" data-sync="${x.id}">${esc(t("sync_now"))}</button><button class="btn danger" data-remove="${x.id}">${esc(t("disconnect"))}</button></div>
+    <div style="margin-top:8px">${status(x)}</div>`;
+  const jf = by.jellyfin, ma = by.music_assistant;
+  box.innerHTML = `
+    <div class="panel"><h3>Music Assistant</h3>${ma.configured
+      ? connectedHead(ma, ma.providers.length ? `<p class="muted small">${esc(t("ma_sources"))}: ${ma.providers.map((p) => esc(p.name)).join(", ")}</p>` : `<div class="banner">${esc(t("ma_no_fs"))}</div>`)
+      : `<p class="muted small" style="margin-top:0">${esc(t("ma_help"))}</p>
+        <div class="form-row"><label>URL</label><input type="text" id="maUrl" placeholder="http://homeassistant.local:8095"></div>
+        <div class="form-row"><label>${esc(t("ma_token"))}</label><input type="password" id="maToken" placeholder="${esc(t("optional"))}"></div>
+        <div class="form-row"><label>${esc(t("ma_or_login"))}</label><div class="toolbar" style="margin:0"><input type="text" id="maUser" placeholder="${esc(t("username"))}" style="flex:1"><input type="password" id="maPass" placeholder="${esc(t("password"))}" style="flex:1"></div>
+          <div class="help">${esc(t("ma_login_help"))}</div></div>
+        <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="maGo">${esc(t("connect_btn"))}</button></div>`}</div>
+    <div class="panel"><h3>Jellyfin</h3>${jf.configured
+      ? connectedHead(jf)
+      : `<p class="muted small" style="margin-top:0">${esc(t("jellyfin_help"))}</p>
+        <div class="form-row"><label>URL</label><input type="text" id="jfUrl" placeholder="http://jellyfin:8096"></div>
+        <div class="form-row"><label>${esc(t("jellyfin_key"))}</label><input type="password" id="jfKey"></div>
+        <div class="toolbar" style="margin:6px 0 0"><button class="btn primary" id="jfGo">${esc(t("connect_btn"))}</button></div>`}</div>`;
+  $("#maGo")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try { await act(() => put("/integrations/music_assistant", { url: $("#maUrl").value, token: $("#maToken").value, username: $("#maUser").value, password: $("#maPass").value }), "Music Assistant"); renderIntegrations(); }
+    catch { e.target.disabled = false; }
+  });
+  $("#jfGo")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try { await act(() => put("/integrations/jellyfin", { url: $("#jfUrl").value, api_key: $("#jfKey").value }), "Jellyfin"); renderIntegrations(); }
+    catch { e.target.disabled = false; }
+  });
+  box.querySelectorAll("[data-enable]").forEach((c) => (c.onchange = () => act(() => api(`/integrations/${c.dataset.enable}`, { method: "PATCH", body: { enabled: c.checked } }), t("saved"))));
+  box.querySelectorAll("[data-sync]").forEach((b) => (b.onclick = async () => { b.disabled = true; await act(() => post(`/integrations/${b.dataset.sync}/sync`)); renderIntegrations(); }));
+  box.querySelectorAll("[data-remove]").forEach((b) => (b.onclick = async () => { await act(() => del(`/integrations/${b.dataset.remove}`)); renderIntegrations(); }));
+}
+
 async function renderServices() {
   const box = $("#services");
   if (!box) return;
@@ -1054,7 +1103,7 @@ function folderDialog(start, onPick) {
 
 // ---------------------------------------------------------------- settings
 
-const SETTINGS_TABS = [["accounts", "tab_accounts"], ["library", "library"], ["tasks", "tasks"]];
+const SETTINGS_TABS = [["accounts", "tab_accounts"], ["library", "library"], ["integrations", "tab_integrations"], ["tasks", "tasks"]];
 
 async function viewSettings(tab, alive) {
   if (!SETTINGS_TABS.some(([id]) => id === tab)) tab = "accounts";
@@ -1085,11 +1134,9 @@ async function viewSettings(tab, alive) {
       <div class="form-row"><label>${esc(t("chart_types"))}</label><div class="checks">${[["song", "chart_songs"], ["album", "chart_albums"], ["artist", "chart_artists"]].map(([k, l]) => `<label><input type="checkbox" name="ctype" value="${k}" ${(s.chart_types || "").split(",").includes(k) ? "checked" : ""}> ${esc(t(l))}</label>`).join("")}</div></div>
       <div class="form-row" style="align-items:start"><label>${esc(t("chart_sources"))}</label><div class="checks" id="chartChecks"><span class="spinner"></span></div></div>
       <div class="form-row"><label>${esc(t("chart_size"))}</label><select name="chart_size">${["25", "50", "100"].map((n) => `<option ${s.chart_size === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
-      <h3 style="margin-top:16px">${esc(t("jellyfin"))}</h3>
-      <div class="form-row"><label>${esc(t("jellyfin_url"))}</label><input type="text" name="jellyfin_url" placeholder="http://jellyfin:8096" value="${esc(s.jellyfin_url)}"></div>
-      <div class="form-row"><label>${esc(t("jellyfin_key"))}</label><input type="password" name="jellyfin_api_key" value="${esc(s.jellyfin_api_key)}"><div class="help">${esc(t("jellyfin_help"))}</div></div>
       <div class="toolbar" style="margin:12px 0 0"><button class="btn primary">${esc(t("save"))}</button></div>
     </form>
+    <div data-tab="integrations" ${tab === "integrations" ? "" : "hidden"}><p class="muted" style="margin-top:0">${esc(t("integrations_help"))}</p><div id="integrations"><span class="spinner"></span></div></div>
     <div class="panel" data-tab="tasks" ${tab === "tasks" ? "" : "hidden"}><h3>${esc(t("tasks"))}</h3><div id="tasks"></div></div>`;
 
   $("#settingsForm").onsubmit = async (e) => {
@@ -1100,11 +1147,12 @@ async function viewSettings(tab, alive) {
       monitor_new_default: f.get("monitor_new_default") ? "1" : "0", refresh_hours: f.get("refresh_hours"),
       scan_hours: f.get("scan_hours"), threads: f.get("threads"),
       embed_artwork: f.get("embed_artwork") ? "1" : "0", folder_artwork: f.get("folder_artwork") ? "1" : "0",
-      chart_countries: f.getAll("chart").join(","), chart_types: f.getAll("ctype").join(","), chart_size: f.get("chart_size"), jellyfin_url: f.get("jellyfin_url"), jellyfin_api_key: f.get("jellyfin_api_key"),
+      chart_countries: f.getAll("chart").join(","), chart_types: f.getAll("ctype").join(","), chart_size: f.get("chart_size"),
     }), t("saved"));
   };
 
   renderServices();
+  renderIntegrations();
   $("#browseBtn").onclick = () => folderDialog($("#musicDir").value, (p) => ($("#musicDir").value = p));
 
   api("/suggest/sources").then((src) => {
