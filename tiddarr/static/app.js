@@ -78,7 +78,7 @@ const STRINGS = {
     never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
     stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
     plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
-    pause: "Pause", resume: "Resume", clear_queue: "Clear queue", cleared: "downloads removed",
+    already_queued: "Already in the queue", pause: "Pause", resume: "Resume", clear_queue: "Clear queue", cleared: "downloads removed",
     paused_banner: "Downloads are paused. Waiting jobs stay in the queue until you resume.",
     clear_queue_text: "Removes all {n} waiting downloads and stops the running one. Songs already on disk stay.",
     clear_unmonitor: "Stop monitoring these albums too (otherwise the next release check queues them again)",
@@ -174,7 +174,7 @@ const STRINGS = {
     never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
     stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
     plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
-    pause: "Pausieren", resume: "Fortsetzen", clear_queue: "Warteschlange leeren", cleared: "Downloads entfernt",
+    already_queued: "Ist schon in der Warteschlange", pause: "Pausieren", resume: "Fortsetzen", clear_queue: "Warteschlange leeren", cleared: "Downloads entfernt",
     paused_banner: "Downloads sind pausiert. Wartende Downloads bleiben in der Warteschlange, bis du fortsetzt.",
     clear_queue_text: "Entfernt alle {n} wartenden Downloads und bricht den laufenden ab. Bereits geladene Songs bleiben erhalten.",
     clear_unmonitor: "Diese Alben auch nicht mehr überwachen (sonst reiht der nächste Release-Check sie wieder ein)",
@@ -427,7 +427,15 @@ function bindAlbumActions(root, reload) {
     const idf = e.target.closest("[data-identify]");
     if (idf) identifyDialog(+idf.dataset.identify, reload);
     if (mon) { await act(() => put(`/albums/${mon.dataset.mon}`, { monitored: mon.dataset.v === "1" })); reload(); }
-    if (dl) { dl.disabled = true; await act(() => post(`/albums/${dl.dataset.dl}/download`), t("added_queue")); reload(); refreshStatus(); }
+    if (dl) {
+      if (dl.disabled) return;
+      dl.disabled = true;
+      const card = dl.closest("[data-label]");
+      const name = card ? card.dataset.label : "";
+      const r = await act(() => post(`/albums/${dl.dataset.dl}/download`));
+      toast(r.job ? `${t("added_queue")}${name ? ": " + name : ""}` : t("already_queued"));
+      reload(); refreshStatus();
+    }
   });
 }
 
@@ -454,7 +462,6 @@ async function viewArtist(id, alive) {
       ${groups.map(([ty, l]) => `<h2>${esc(typeLabel(ty))} <span class="muted">(${l.length})</span></h2><div class="grid">${l.map((x) => albumCard(x)).join("")}</div>`).join("")}
       ${hidden.length ? `<h2>${esc(t("hidden_versions"))} <span class="muted">(${hidden.length})</span> <button class="btn small" id="toggleHidden">${esc(t("show"))}</button></h2><div class="grid" id="hiddenGrid" hidden>${hidden.map((x) => albumCard(x)).join("")}</div>` : ""}
       ${!albums.length ? `<div class="empty">${esc(t("no_results"))}</div>` : ""}`;
-    bindAlbumActions(main, load);
     $("#toggleHidden")?.addEventListener("click", (e) => { const g = $("#hiddenGrid"); g.hidden = !g.hidden; e.target.textContent = g.hidden ? t("show") : t("hide"); });
     $("#mon")?.addEventListener("click", async () => { await act(() => put(`/artists/${id}`, { monitored: !a.monitored })); load(); });
     $("#monNew")?.addEventListener("change", (e) => act(() => put(`/artists/${id}`, { monitor_new: e.target.checked }), t("saved")));
@@ -463,6 +470,7 @@ async function viewArtist(id, alive) {
     $("#deleteArtist").addEventListener("click", () => deleteDialog("artist", +id, a.name, `${a.albums_on_disk} ${t("albums")} · ${a.tracks} ${t("songs")} · ${bytes(a.size)}`, () => (location.hash = "#/artists")));
     $("#linkBtn")?.addEventListener("click", () => linkDialog(a, load));
   };
+  bindAlbumActions(main, load);
   await load();
   viewTimer = setInterval(() => { if (document.querySelector('.badge.info')) load(); }, 6000);
 }
@@ -974,10 +982,11 @@ function playlistTrackTable(tracks, withState) {
 }
 
 function bindPlaylistTracks(tracks, savedId) {
+  const list = typeof tracks === "function" ? tracks : () => tracks;
   main.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-pt]");
-    if (!b) return;
-    const x = tracks[+b.dataset.pt];
+    if (!b || b.disabled) return;
+    const x = list()[+b.dataset.pt];
     b.disabled = true; b.innerHTML = `<span class="spinner"></span>`;
     try {
       await (savedId ? post(`/playlists/${savedId}/tracks/${x.id}/download`) : post("/playlist-track/download", x));
@@ -1035,6 +1044,8 @@ function renderLocalPlaylist(p, tracks) {
 }
 
 async function viewSavedPlaylist(id, alive) {
+  let current = [];
+  bindPlaylistTracks(() => current, id);
   const load = async () => {
     const { playlist: p, tracks, sync } = await api(`/playlists/${id}`);
     if (!alive()) return;
@@ -1052,7 +1063,7 @@ async function viewSavedPlaylist(id, alive) {
     $("#mon").onchange = (e) => act(() => put(`/playlists/${id}`, { monitored: e.target.checked }), t("saved"));
     $("#m3u").onchange = (e) => act(() => put(`/playlists/${id}`, { write_m3u: e.target.checked }), t("saved"));
     $("#del").onclick = async () => { await act(() => del(`/playlists/${id}`)); location.hash = "#/playlists"; };
-    bindPlaylistTracks(tracks, id);
+    current = tracks;
     return sync && sync.running;
   };
   await load();
