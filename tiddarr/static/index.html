@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b1f29">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Tiddarr</title>
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
@@ -29,6 +32,7 @@
   <a href="#/settings" data-nav="settings"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><b data-i18n="nav_settings"></b></a>
   <div class="sidebar-foot" id="sidebarFoot"></div>
 </nav>
+<div class="backdrop" id="backdrop" hidden></div>
 <main id="main"></main>
 <div class="player" id="player" hidden>
   <div class="player-info"><b id="playerTitle"></b><span id="playerSub"></span></div>

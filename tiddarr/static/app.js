@@ -78,7 +78,7 @@ const STRINGS = {
     never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
     stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
     plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
-    appearance: "Appearance", accent_color: "Accent color", reset: "Reset", cannot_play: "Can't play", song: "Song", top_hit: "Top result", results_for: "Showing results for", preview_tidal: "Preview from Tidal",
+    more: "More", go_artist: "Go to artist", go_album: "Go to album", pl_download_missing: "Download songs that are not in the library yet", appearance: "Appearance", accent_color: "Accent color", reset: "Reset", cannot_play: "Can't play", song: "Song", top_hit: "Top result", results_for: "Showing results for", preview_tidal: "Preview from Tidal",
     pl_created: "Created", pl_downloaded: "Downloaded", own_tab: "Own", import_tab: "Import", unnamed: "Untitled", lookup_waiting: "Waiting for lookup", lookup_running: "Looking up",
     choose_files: "Choose CSV files", paste_text: "Paste text", csv_hint: "Spotify: export via", paste_placeholder: "Artist - Title (one per line) or CSV",
     no_imports: "No imported playlists yet – search, paste a link or import CSV files above.", no_own: "No own playlists yet – create one or add songs via right-click.",
@@ -178,7 +178,7 @@ const STRINGS = {
     never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
     stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
     plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
-    appearance: "Darstellung", accent_color: "Akzentfarbe", reset: "Zurücksetzen", cannot_play: "Kann nicht abgespielt werden", song: "Song", top_hit: "Top-Treffer", results_for: "Ergebnisse für", preview_tidal: "Vorschau von Tidal",
+    more: "Mehr", go_artist: "Zum Interpreten", go_album: "Zum Album", pl_download_missing: "Songs, die noch nicht in der Bibliothek sind, herunterladen", appearance: "Darstellung", accent_color: "Akzentfarbe", reset: "Zurücksetzen", cannot_play: "Kann nicht abgespielt werden", song: "Song", top_hit: "Top-Treffer", results_for: "Ergebnisse für", preview_tidal: "Vorschau von Tidal",
     pl_created: "Erstellt", pl_downloaded: "Heruntergeladen", own_tab: "Eigene", import_tab: "Import", unnamed: "Ohne Namen", lookup_waiting: "Wartet auf Abgleich", lookup_running: "Abgleich",
     choose_files: "CSV-Dateien wählen", paste_text: "Text einfügen", csv_hint: "Spotify: exportieren über", paste_placeholder: "Interpret - Titel (eine Zeile pro Song) oder CSV",
     no_imports: "Noch keine importierten Playlists – oben suchen, Link einfügen oder CSV-Dateien importieren.", no_own: "Noch keine eigenen Playlists – lege eine an oder füge Songs per Rechtsklick hinzu.",
@@ -319,6 +319,7 @@ const routes = [
   [/^#\/stale$/, (_, alive) => viewStale(alive), "stale"],
   [/^#\/add(?:\/(.*))?$/, viewAdd, "add"],
   [/^#\/tidal\/artist\/(\d+)$/, viewTidalArtist, "add"],
+  [/^#\/tidal\/album\/(\d+)$/, viewTidalAlbum, "add"],
   [/^#\/discover(?:\/(\w+))?$/, viewDiscover, "discover"],
   [/^#\/playlists$/, viewPlaylists, "playlists"],
   [/^#\/playlist\/(\w+)\/(.+)$/, viewRemotePlaylist, "playlists"],
@@ -335,7 +336,7 @@ async function route() {
   clearInterval(viewTimer);
   if (!$("#modal").hidden) closeModal();
   const hash = location.hash || "#/artists";
-  $("#sidebar").classList.remove("open");
+  setSidebar(false);
   for (const [re, fn, nav] of routes) {
     const m = hash.match(re);
     if (!m) continue;
@@ -361,7 +362,9 @@ async function route() {
 }
 window.addEventListener("hashchange", route);
 
-$("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
+const setSidebar = (open) => { $("#sidebar").classList.toggle("open", open); $("#backdrop").hidden = !open; };
+$("#menuBtn").onclick = () => setSidebar(!$("#sidebar").classList.contains("open"));
+$("#backdrop").onclick = () => setSidebar(false);
 try { if (localStorage.getItem("sidebarCollapsed") === "1") document.body.classList.add("collapsed"); } catch { /* no storage */ }
 $("#collapseBtn").onclick = () => {
   const on = document.body.classList.toggle("collapsed");
@@ -597,6 +600,15 @@ function play(track, sub) {
 }
 $("#playerClose").onclick = () => { $("#audio").pause(); $("#player").hidden = true; };
 
+// content and toasts keep clear of the player, whatever its height (wraps on phones, safe area)
+new ResizeObserver(() => {
+  const h = $("#player").hidden ? 0 : $("#player").offsetHeight;
+  document.documentElement.style.setProperty("--player-h", h + "px");
+}).observe($("#player"));
+new MutationObserver(() => {
+  document.documentElement.style.setProperty("--player-h", ($("#player").hidden ? 0 : $("#player").offsetHeight) + "px");
+}).observe($("#player"), { attributes: true, attributeFilter: ["hidden"] });
+
 // ---- own player controls (the native audio controls can't be themed)
 (() => {
   const a = $("#audio"), seek = $("#plSeek"), vol = $("#plVol");
@@ -823,6 +835,9 @@ async function viewAdd(query, alive) {
     return x.library_id && x.monitored ? `<a class="btn small" href="#/artist/${x.library_id}">${esc(t("in_library"))}</a>` : `<button class="btn small primary" data-add-artist="${x.tidal_id}" data-name="${esc(x.name)}">${esc(t("add"))}</button>`;
   };
   const artistLink = (x) => x.artist_tidal_id ? `<a href="#/tidal/artist/${x.artist_tidal_id}">${esc(x.artist || "")}</a>` : esc(x.artist || "");
+  const all = [r.top, ...r.items].filter(Boolean);
+  const dots = (x) => x.kind === "artist" ? "" : `<button class="icon-btn dots" data-menu="${x.kind}:${x.tidal_id}" aria-label="${esc(t("more"))}">${ICON_DOTS}</button>`;
+  const albumHref = (x) => x.kind === "album" ? `#/tidal/album/${x.tidal_id}` : (x.album_tidal_id ? `#/tidal/album/${x.album_tidal_id}` : "");
 
   const topCard = (x) => {
     if (!x) return "";
@@ -832,14 +847,14 @@ async function viewAdd(query, alive) {
     return `<div class="top-hit ${x.kind === "track" ? "playable" : ""}" ${x.kind === "track" ? `data-listen="${x.tidal_id}" data-title="${esc(x.title)}" data-sub="${esc(x.artist || "")}"` : ""}>
       <div class="top-art ${x.kind === "artist" ? "round" : ""}" ${bg(img)}>${x.kind === "track" ? `<span class="play-overlay">${ICON_PLAY}</span>` : ""}</div>
       <div class="top-meta"><span class="muted small">${esc(t("top_hit"))}</span><h2>${esc(title)}${x.explicit ? ' <span class="badge">E</span>' : ""}</h2><div class="muted">${sub}</div>
-        <div class="actions">${x.kind === "artist" ? `<a class="btn small" href="#/tidal/artist/${x.tidal_id}">${esc(t("preview"))}</a>` : ""}${action(x)}</div></div></div>`;
+        <div class="actions">${x.kind === "artist" ? `<a class="btn small" href="#/tidal/artist/${x.tidal_id}">${esc(t("preview"))}</a>` : ""}${action(x)}${dots(x)}</div></div></div>`;
   };
   const row = (x) => `<div class="result-row ${x.kind === "track" ? "playable" : ""}" ${x.kind === "track" ? `data-listen="${x.tidal_id}" data-title="${esc(x.title)}" data-sub="${esc(x.artist || "")}"` : ""}>
       <div class="thumb" ${bg(x.cover)}>${x.kind === "track" ? `<span class="play-overlay">${ICON_PLAY}</span>` : ""}</div>
-      <div class="result-main"><div class="result-title">${esc(x.title)}${x.explicit ? ' <span class="badge">E</span>' : ""}</div>
+      <div class="result-main"><div class="result-title">${x.kind === "album" ? `<a href="${albumHref(x)}">${esc(x.title)}</a>` : esc(x.title)}${x.explicit ? ' <span class="badge">E</span>' : ""}</div>
         <div class="muted small"><span class="kind">${esc(kindLabel(x))}</span> · ${artistLink(x)}${x.kind === "track" && x.album ? ` · ${esc(x.album)}` : ""}${x.year ? ` · ${esc(x.year)}` : ""}${x.kind === "album" && x.num_tracks ? ` · ${x.num_tracks} ${esc(t("songs"))}` : ""}</div></div>
       <div class="muted small hide-sm">${x.kind === "track" ? dur(x.duration) : ""}</div>
-      <div class="row-actions">${action(x)}</div></div>`;
+      <div class="row-actions">${action(x)}${dots(x)}</div></div>`;
   const artistItem = (a) => `<div class="side-artist"><a href="#/tidal/artist/${a.tidal_id}" class="side-art" ${bg(a.picture)}></a>
       <div class="result-main"><a class="result-title" href="#/tidal/artist/${a.tidal_id}">${esc(a.name)}</a></div>${action({ ...a, kind: "artist" })}</div>`;
 
@@ -858,6 +873,19 @@ async function viewAdd(query, alive) {
     $("#results").innerHTML = hint + `<div class="search-layout ${side ? "" : "single"}"><div class="search-main">${mainCol}</div>${side}</div>`;
   };
   $("#addFilter").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; localStorage.setItem("addFilter", filter); render(); } };
+  $("#results").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-menu]");
+    if (!b) return;
+    e.stopPropagation();
+    const [kind, id] = b.dataset.menu.split(":");
+    const x = all.find((i) => i.kind === kind && String(i.tidal_id) === id);
+    if (!x) return;
+    const items = [[t("add_to_playlist"), () => addToPlaylistDialog(kind === "track" ? { tidal_track_ids: [x.tidal_id] } : { tidal_album_id: x.tidal_id }, x.title)]];
+    if (x.artist_tidal_id) items.push([t("go_artist"), () => (location.hash = `#/tidal/artist/${x.artist_tidal_id}`)]);
+    if (albumHref(x)) items.push([t("go_album"), () => (location.hash = albumHref(x))]);
+    const rect = b.getBoundingClientRect();
+    showMenu(rect.right - 180, rect.bottom + 4, items);
+  });
   // click a song (anywhere but its buttons/links) to listen
   $("#results").addEventListener("click", (e) => {
     if (e.target.closest("button, a")) return;
@@ -901,6 +929,26 @@ async function addArtistDialog(tidalId, name) {
   };
 }
 
+async function viewTidalAlbum(tidalId, alive) {
+  const { album: a, tracks } = await api(`/tidal/album/${tidalId}`);
+  if (!alive()) return;
+  const owned = tracks.filter((x) => x.library_track_id).length;
+  main.innerHTML = `${loginBanner()}<div class="hero"><div class="art playable-art" ${bg(a.cover)}><span class="play-overlay">${ICON_PLAY}</span></div>
+    <div class="meta"><span class="muted">${esc(typeLabel(a.type || "ALBUM"))} · Tidal</span><h1>${esc(a.title)}</h1>
+      <div class="stats">${a.artist_tidal_id ? `<a href="#/tidal/artist/${a.artist_tidal_id}"><b>${esc(a.artist)}</b></a>` : `<b>${esc(a.artist)}</b>`}<span>${esc(a.year)}</span>
+        <span>${tracks.length} ${esc(t("songs"))}</span>${owned ? `<span>${owned} ${esc(t("tracks_on_disk"))}</span>` : ""}${a.hires ? `<span class="badge">Hi-Res</span>` : ""}</div>
+      <div class="toolbar" style="margin:6px 0 0">
+        ${a.library_id && a.track_files ? `<a class="btn primary" href="#/album/${a.library_id}">${esc(t("in_library"))}</a>` : `<button class="btn primary" id="dlAlbum">${esc(t("download"))}</button>`}
+        <button class="btn" id="albumToPl">${esc(t("add_to_playlist"))}</button></div></div></div>
+    <table class="list">${tracks.map((x) => `<tr><td class="num">${x.disc_no > 1 ? x.disc_no + "." : ""}${x.track_no}</td><td style="width:48px">${songThumb(x, a.cover)}</td>
+      <td>${esc(x.title)}${x.explicit ? ' <span class="badge">E</span>' : ""}<div class="muted small">${esc(x.artist || "")}</div></td><td class="muted hide-sm">${dur(x.duration)}</td>
+      <td class="row-actions">${x.library_track_id ? `<span class="badge ok">${esc(t("on_disk"))}</span>` : `<button class="btn small" data-add-track="${x.tidal_id}">${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>`;
+  main.querySelector(".hero .art").onclick = () => main.querySelector("table [data-play-src]")?.click();
+  $("#dlAlbum")?.addEventListener("click", async (e) => { e.target.disabled = true; await act(() => post("/albums", { tidal_id: +tidalId }), `${t("added_queue")}: ${a.title}`); refreshStatus(); });
+  $("#albumToPl").onclick = () => addToPlaylistDialog({ tidal_album_id: +tidalId }, a.title);
+  bindAddActions(main);
+}
+
 async function viewTidalArtist(tidalId, alive) {
   const r = await api(`/tidal/artist/${tidalId}`);
   if (!alive()) return;
@@ -913,7 +961,7 @@ async function viewTidalArtist(tidalId, alive) {
     ${a.library_id ? `<a class="btn" href="#/artist/${a.library_id}">${esc(t("in_library"))}</a>` : ""}</div></div></div>
     ${groups.map(([ty, l]) => `<h2>${esc(typeLabel(ty))} <span class="muted">(${l.length})</span></h2><div class="grid">${l.map((x) => `<div class="card"><div class="img" ${bg(x.cover)}></div>
       <div class="body"><div class="title" title="${esc(x.title)}">${esc(x.title)}</div><div class="sub">${esc(x.year)} · ${x.num_tracks} ${esc(t("songs"))}${x.explicit ? " · Explicit" : ""}${x.quality === "HI_RES" ? " · Hi-Res" : ""}</div>
-      <div class="actions"><button class="btn small primary" data-add-album="${x.tidal_id}">${esc(t("download"))}</button></div></div></div>`).join("")}</div>`).join("")}`;
+      <div class="actions"><button class="btn small primary" data-add-album="${x.tidal_id}">${esc(t("download"))}</button><a class="btn small" href="#/tidal/album/${x.tidal_id}">${esc(t("open"))}</a></div></div></div>`).join("")}</div>`).join("")}`;
   bindAddActions(main);
 }
 
@@ -937,15 +985,17 @@ function deleteDialog(kind, id, label, info, after) {
   };
 }
 
-// what: { track_ids: [...] } | { album_id } | { artist_id }
+// what: { track_ids } | { album_id } | { artist_id } | { tidal_track_ids } | { tidal_album_id }
 async function addToPlaylistDialog(what, label) {
   const list = await api("/playlists/local");
+  const fromTidal = !!(what.tidal_track_ids || what.tidal_album_id);
   const m = modal(`<h2>${esc(t("add_to_playlist"))}${label ? ": " + esc(label) : ""}</h2>
     ${list.length ? `<div style="max-height:40vh;overflow:auto;margin-bottom:12px">${list.map((p) => `<button class="option" style="width:100%;text-align:left" data-pl="${p.id}"><div><b>${esc(p.name)}</b><small>${p.count} ${esc(t("songs"))}</small></div></button>`).join("")}</div>` : ""}
     <form class="toolbar" id="newPl" style="margin:0"><input type="text" id="newPlName" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("new_playlist"))}</button></form>
+    ${fromTidal ? `<label class="checks" style="margin-top:12px"><label><input type="checkbox" id="plDl" checked> ${esc(t("pl_download_missing"))}</label></label>` : ""}
     <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button></div>`);
   const add = async (plId, name) => {
-    const r = await act(() => post(`/playlists/${plId}/tracks`, what));
+    const r = await act(() => post(`/playlists/${plId}/tracks`, { ...what, download: fromTidal && $("#plDl", m)?.checked }));
     toast(`${r.added} ${t("songs")} → ${name}`);
     closeModal();
   };
@@ -960,10 +1010,21 @@ async function addToPlaylistDialog(what, label) {
   $("#newPlName", m).focus();
 }
 
-// right-click menu: elements carry data-ctx="artist:12" | "album:5" | "track:9"
 const ctxMenu = document.createElement("div");
 ctxMenu.className = "ctx-menu"; ctxMenu.hidden = true;
 document.body.append(ctxMenu);
+const ICON_DOTS = `<svg class="ico" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" class="fill"/><circle cx="12" cy="12" r="1.6" class="fill"/><circle cx="19" cy="12" r="1.6" class="fill"/></svg>`;
+
+function showMenu(x, y, items) {
+  ctxMenu.innerHTML = items.map(([l, , cls], i) => `<button data-i="${i}" class="${cls || ""}">${esc(l)}</button>`).join("");
+  ctxMenu.querySelectorAll("button").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); ctxMenu.hidden = true; items[+b.dataset.i][1](); }));
+  ctxMenu.hidden = false;
+  const w = ctxMenu.offsetWidth, h = ctxMenu.offsetHeight;
+  ctxMenu.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + "px";
+  ctxMenu.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + "px";
+}
+
+// right-click menu: elements carry data-ctx="artist:12" | "album:5" | "track:9"
 document.addEventListener("click", () => (ctxMenu.hidden = true));
 document.addEventListener("scroll", () => (ctxMenu.hidden = true), true);
 document.addEventListener("contextmenu", (e) => {
@@ -983,12 +1044,7 @@ document.addEventListener("contextmenu", (e) => {
   const addWhat = { track: { track_ids: [+id] }, album: { album_id: +id }, artist: { artist_id: +id } }[kind];
   items.push([t("add_to_playlist"), () => addToPlaylistDialog(addWhat, label)]);
   items.push([t("delete_" + kind), () => deleteDialog(kind, +id, label, "", () => route()), "danger"]);
-  ctxMenu.innerHTML = items.map(([l, , cls], i) => `<button data-i="${i}" class="${cls || ""}">${esc(l)}</button>`).join("");
-  ctxMenu.querySelectorAll("button").forEach((b) => (b.onclick = () => { ctxMenu.hidden = true; items[+b.dataset.i][1](); }));
-  ctxMenu.hidden = false;
-  const w = ctxMenu.offsetWidth, h = ctxMenu.offsetHeight;
-  ctxMenu.style.left = Math.min(e.clientX, innerWidth - w - 8) + "px";
-  ctxMenu.style.top = Math.min(e.clientY, innerHeight - h - 8) + "px";
+  showMenu(e.clientX, e.clientY, items);
 });
 
 // --------------------------------------------------------------- playlists

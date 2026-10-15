@@ -383,6 +383,37 @@ def add_tracks(pl_id: int, track_ids: list[int]) -> int:
     return n
 
 
+def add_tidal_tracks(pl_id: int, tidal_tracks: list[dict], download: bool = False) -> int:
+    """Add songs from Tidal that may not be on disk yet. They show up in the
+    playlist right away; players see them once they are downloaded."""
+    _local(pl_id)
+    idx = library_index()
+    pos = (db.one("SELECT MAX(pos) AS m FROM playlist_tracks WHERE playlist_id=?", (pl_id,))["m"] or -1) + 1
+    n = 0
+    for t in tidal_tracks:
+        entry = {
+            "title": t["title"] + (f" ({t['version']})" if t.get("version") else ""),
+            "artist": ", ".join(a["name"] for a in t.get("artists") or []) or (t.get("artist") or {}).get("name"),
+            "album": (t.get("album") or {}).get("title"), "isrc": t.get("isrc"), "duration": t.get("duration"),
+        }
+        hit = find_in_library(idx, entry)
+        state = "owned" if hit else "matched"
+        if download and not hit:
+            downloader.enqueue_track(t)
+            state = "queued"
+        db.run(
+            "INSERT INTO playlist_tracks(playlist_id, pos, title, artist, album, isrc, duration, cover, tidal_id, track_id, state) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (pl_id, pos, entry["title"], entry["artist"], entry["album"], entry["isrc"], entry["duration"],
+             image((t.get("album") or {}).get("cover"), 160), t["id"], hit["id"] if hit else None, state),
+        )
+        pos += 1
+        n += 1
+    db.run("UPDATE playlists SET last_sync=CURRENT_TIMESTAMP WHERE id=?", (pl_id,))
+    _changed(pl_id)
+    return n
+
+
 def remove_entries(pl_id: int, entry_ids: list[int]):
     _local(pl_id)
     for eid in entry_ids:

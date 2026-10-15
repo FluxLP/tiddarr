@@ -249,6 +249,23 @@ def tidal_listen_match():
     return tidal_listen(tid)
 
 
+@app.get("/api/tidal/album/<int:tidal_id>")
+def tidal_album_preview(tidal_id):
+    """An album on Tidal that may not be in the library yet."""
+    a = tidal.album(tidal_id)
+    lib = db.one("SELECT id, track_files FROM albums WHERE tidal_id=?", (tidal_id,))
+    idx = playlists.library_index()
+    tracks = []
+    for t in tidal.album_tracks(tidal_id):
+        tr = _track_out(t)
+        hit = playlists.find_in_library(idx, {"title": t["title"], "artist": tr["artist"], "album": a["title"], "isrc": t.get("isrc")})
+        tracks.append({**tr, "track_no": t["trackNumber"], "disc_no": t["volumeNumber"], "isrc": t.get("isrc"),
+                       "library_track_id": hit["id"] if hit else None})
+    return jsonify(album={**_album_out(a), "cover": image(a.get("cover"), 640), "copyright": a.get("copyright"),
+                          "library_id": lib["id"] if lib else None, "track_files": lib["track_files"] if lib else 0},
+                   tracks=tracks)
+
+
 @app.get("/api/tidal/artist/<int:tidal_id>")
 def tidal_artist_preview(tidal_id):
     """Discography of an artist that is not in the library yet."""
@@ -831,6 +848,14 @@ def playlist_add(pl_id):
     ids = [int(x) for x in b.get("track_ids", [])]
     if b.get("album_id"):
         ids += [r["id"] for r in db.q("SELECT id FROM tracks WHERE album_id=? ORDER BY disc_no, track_no, path", (int(b["album_id"]),))]
+    if b.get("tidal_track_ids") or b.get("tidal_album_id"):
+        tracks = [tidal.track(int(x)) for x in b.get("tidal_track_ids") or []]
+        if b.get("tidal_album_id"):
+            tracks += tidal.album_tracks(int(b["tidal_album_id"]))
+        try:
+            return jsonify(added=playlists.add_tidal_tracks(pl_id, tracks, download=bool(b.get("download"))))
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
     if b.get("artist_id"):
         ids += [r["id"] for r in db.q(
             "SELECT t.id FROM tracks t JOIN albums al ON al.id=t.album_id WHERE al.artist_id=? "
