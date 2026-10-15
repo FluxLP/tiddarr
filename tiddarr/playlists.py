@@ -207,6 +207,8 @@ def sync(pl_id: int, download: bool = False):
                 continue
             if r["state"] == "matched" and r["tidal_id"] and r["cover"] and not download:
                 continue  # metadata already known
+            if pl["service"] == "local" and not r["tidal_id"] and not download:
+                continue
             tid = _fill_from_tidal(r)
             if not tid:
                 st["not_found"] += 1
@@ -386,7 +388,8 @@ def add_tracks(pl_id: int, track_ids: list[int]) -> int:
 def add_tidal_tracks(pl_id: int, tidal_tracks: list[dict], download: bool = False) -> int:
     """Add songs from Tidal that may not be on disk yet. They show up in the
     playlist right away; players see them once they are downloaded."""
-    _local(pl_id)
+    pl = _local(pl_id)
+    download = download or bool(pl["monitored"])  # "keep complete" means: download what gets added
     idx = library_index()
     pos = (db.one("SELECT MAX(pos) AS m FROM playlist_tracks WHERE playlist_id=?", (pl_id,))["m"] or -1) + 1
     n = 0

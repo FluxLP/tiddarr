@@ -46,6 +46,7 @@ DEFAULT_SETTINGS = {
     "album_types": "ALBUM,EP,SINGLE",
     "monitor_new_default": "1",
     "refresh_hours": "12",
+    "playlist_sync_minutes": "60",
     "scan_hours": "6",
     "threads": "4",
     "embed_artwork": "1",

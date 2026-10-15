@@ -825,6 +825,7 @@ def update_playlist(pl_id):
             db.run(f"UPDATE playlists SET {key}=? WHERE id=?", (1 if b[key] else 0, pl_id))
     if b.get("monitored"):
         db.run("UPDATE playlists SET downloaded=1 WHERE id=?", (pl_id,))
+        playlists.sync_async(pl_id, download=True)
     return jsonify(db.one("SELECT * FROM playlists WHERE id=?", (pl_id,)))
 
 

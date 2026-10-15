@@ -78,6 +78,7 @@ const STRINGS = {
     never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
     stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
     plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
+    playlist_sync_label: "Check \"keep complete\" playlists every (minutes)", playlist_sync_help: "New songs in these playlists are downloaded right away. Songs you add in Tiddarr are downloaded immediately.",
     more: "More", go_artist: "Go to artist", go_album: "Go to album", pl_download_missing: "Download songs that are not in the library yet", appearance: "Appearance", accent_color: "Accent color", reset: "Reset", cannot_play: "Can't play", song: "Song", top_hit: "Top result", results_for: "Showing results for", preview_tidal: "Preview from Tidal",
     pl_created: "Created", pl_downloaded: "Downloaded", own_tab: "Own", import_tab: "Import", unnamed: "Untitled", lookup_waiting: "Waiting for lookup", lookup_running: "Looking up",
     choose_files: "Choose CSV files", paste_text: "Paste text", csv_hint: "Spotify: export via", paste_placeholder: "Artist - Title (one per line) or CSV",
@@ -178,6 +179,7 @@ const STRINGS = {
     never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
     stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
     plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
+    playlist_sync_label: "\"Vollständig halten\"-Playlists prüfen alle (Minuten)", playlist_sync_help: "Neue Songs in diesen Playlists werden sofort geladen. In Tiddarr hinzugefügte Songs werden direkt heruntergeladen.",
     more: "Mehr", go_artist: "Zum Interpreten", go_album: "Zum Album", pl_download_missing: "Songs, die noch nicht in der Bibliothek sind, herunterladen", appearance: "Darstellung", accent_color: "Akzentfarbe", reset: "Zurücksetzen", cannot_play: "Kann nicht abgespielt werden", song: "Song", top_hit: "Top-Treffer", results_for: "Ergebnisse für", preview_tidal: "Vorschau von Tidal",
     pl_created: "Erstellt", pl_downloaded: "Heruntergeladen", own_tab: "Eigene", import_tab: "Import", unnamed: "Ohne Namen", lookup_waiting: "Wartet auf Abgleich", lookup_running: "Abgleich",
     choose_files: "CSV-Dateien wählen", paste_text: "Text einfügen", csv_hint: "Spotify: exportieren über", paste_placeholder: "Interpret - Titel (eine Zeile pro Song) oder CSV",
@@ -1263,21 +1265,25 @@ async function viewRemotePlaylist(service, id, alive) {
 }
 
 function renderLocalPlaylist(p, tracks) {
+  bindPlaylistTracks(tracks, p.id);
   const total = tracks.reduce((n, x) => n + (x.duration || 0), 0);
   main.innerHTML = `<div class="hero"><div class="art"></div><div class="meta"><span class="muted">Tiddarr · Playlist</span>
     <form class="toolbar" id="renameForm" style="margin:0"><input type="text" id="plName" value="${esc(p.name)}" style="font-size:24px;font-weight:700;flex:1;min-width:200px;background:transparent;border-color:transparent"><button class="btn small" id="renameBtn" hidden>${esc(t("save"))}</button></form>
     <div class="stats"><span><b>${tracks.length}</b> ${esc(t("songs"))}</span><span>${dur(total)}</span></div>
     <p class="muted small" style="margin:0">${esc(t("own_playlist"))}</p>
-    <div class="toolbar" style="margin:6px 0 0"><a class="btn" href="#/tracks">${esc(t("add_to_playlist"))} →</a><button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>
+    <div class="toolbar" style="margin:6px 0 0"><a class="btn" href="#/tracks">${esc(t("add_to_playlist"))} →</a>
+      <label class="btn" title="${esc(t("monitor_pl_help"))}"><input type="checkbox" id="monLocal" ${p.monitored ? "checked" : ""}> ${esc(t("monitor_pl"))}</label>
+      <button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>
     ${tracks.length ? `<table class="list">${tracks.map((x, i) => `<tr><td class="num">${i + 1}</td>
       <td style="width:48px">${songThumb({ ...x, library_track_id: x.library_track_id || x.track_id })}</td>
       <td>${esc(x.title)}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album || "")}</td><td class="muted hide-sm">${dur(x.duration)}</td>
-      <td class="row-actions"><button class="btn small" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} title="${esc(t("move_up"))}">↑</button><button class="btn small" data-mv="${i}" data-d="1" ${i === tracks.length - 1 ? "disabled" : ""} title="${esc(t("move_down"))}">↓</button>
+      <td class="row-actions">${x.owned ? "" : x.state === "queued" ? `<span class="badge info">${esc(t("queued"))}</span> ` : `<button class="btn small" data-pt="${i}">${esc(t("download"))}</button> `}<button class="btn small" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} title="${esc(t("move_up"))}">↑</button><button class="btn small" data-mv="${i}" data-d="1" ${i === tracks.length - 1 ? "disabled" : ""} title="${esc(t("move_down"))}">↓</button>
         <button class="btn small danger" data-rm="${x.id}">${esc(t("remove_from_playlist"))}</button></td></tr>`).join("")}</table>` : `<div class="empty">${esc(t("no_results"))}</div>`}`;
   const reload = () => route();
   $("#plName").addEventListener("input", () => ($("#renameBtn").hidden = false));
   $("#renameForm").onsubmit = async (e) => { e.preventDefault(); await act(() => put(`/playlists/${p.id}`, { name: $("#plName").value }), t("saved")); reload(); };
   $("#del").onclick = async () => { await act(() => del(`/playlists/${p.id}`)); location.hash = "#/playlists"; };
+  $("#monLocal").onchange = (e) => act(() => put(`/playlists/${p.id}`, { monitored: e.target.checked }), e.target.checked ? t("added_queue") : t("saved"));
   main.addEventListener("click", async (e) => {
     const rm = e.target.closest("[data-rm]"), mv = e.target.closest("[data-mv]");
     if (rm) { await act(() => del(`/playlists/${p.id}/tracks/${rm.dataset.rm}`)); reload(); }
@@ -1313,7 +1319,7 @@ async function viewSavedPlaylist(id, alive) {
     });
     $("#sync").onclick = async () => { await act(() => post(`/playlists/${id}/sync`)); setTimeout(load, 1000); };
     $("#dlAllSaved").onclick = async () => { await act(() => post(`/playlists/${id}/sync`, { download: true }), t("added_queue")); setTimeout(load, 1000); };
-    $("#mon").onchange = (e) => act(() => put(`/playlists/${id}`, { monitored: e.target.checked }), t("saved"));
+    $("#mon").onchange = async (e) => { await act(() => put(`/playlists/${id}`, { monitored: e.target.checked }), e.target.checked ? t("added_queue") : t("saved")); setTimeout(load, 1500); };
     $("#m3u").onchange = (e) => act(() => put(`/playlists/${id}`, { write_m3u: e.target.checked }), t("saved"));
     $("#del").onclick = async () => { await act(() => del(`/playlists/${id}`)); location.hash = "#/playlists"; };
     current = tracks;
@@ -1611,6 +1617,7 @@ async function viewSettings(tab, alive) {
       <div class="form-row"><label>${esc(t("album_types"))}</label><div class="checks">${["ALBUM", "EP", "SINGLE"].map((ty) => `<label><input type="checkbox" name="type" value="${ty}" ${types.includes(ty) ? "checked" : ""}> ${esc(typeLabel(ty))}</label>`).join("")}</div></div>
       <div class="form-row"><label>${esc(t("monitor_new_default"))}</label><div class="checks"><label><input type="checkbox" name="monitor_new_default" ${s.monitor_new_default === "1" ? "checked" : ""}></label></div></div>
       <div class="form-row"><label>${esc(t("refresh_hours"))}</label><input type="number" min="0" name="refresh_hours" value="${esc(s.refresh_hours)}"></div>
+      <div class="form-row"><label>${esc(t("playlist_sync_label"))}</label><input type="number" min="0" name="playlist_sync_minutes" value="${esc(s.playlist_sync_minutes)}"><div class="help">${esc(t("playlist_sync_help"))}</div></div>
       <div class="form-row"><label>${esc(t("scan_hours"))}</label><input type="number" min="0" name="scan_hours" value="${esc(s.scan_hours)}"></div>
       <div class="form-row"><label>${esc(t("stale_days_label"))}</label><input type="number" min="7" name="stale_days" value="${esc(s.stale_days)}"><div class="help">${esc(t("stale_days_help"))}</div></div>
       <div class="form-row"><label>${esc(t("threads"))}</label><input type="number" min="1" max="16" name="threads" value="${esc(s.threads)}"></div>
@@ -1638,7 +1645,7 @@ async function viewSettings(tab, alive) {
     await act(() => put("/settings", {
       music_dir: f.get("music_dir"), quality: f.get("quality"), album_types: f.getAll("type").join(","),
       monitor_new_default: f.get("monitor_new_default") ? "1" : "0", refresh_hours: f.get("refresh_hours"),
-      scan_hours: f.get("scan_hours"), threads: f.get("threads"), stale_days: f.get("stale_days"),
+      scan_hours: f.get("scan_hours"), threads: f.get("threads"), playlist_sync_minutes: f.get("playlist_sync_minutes"), stale_days: f.get("stale_days"),
       embed_artwork: f.get("embed_artwork") ? "1" : "0", folder_artwork: f.get("folder_artwork") ? "1" : "0",
       accent_color: f.get("accent_color"),
       chart_countries: f.getAll("chart").join(","), chart_types: f.getAll("ctype").join(","), chart_size: f.get("chart_size"),

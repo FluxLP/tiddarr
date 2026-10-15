@@ -9,7 +9,7 @@ from .tidal import TidalError, tidal
 
 log = logging.getLogger(__name__)
 
-state = {"last_refresh": 0.0, "last_scan": 0.0, "refreshing": False}
+state = {"last_refresh": 0.0, "last_scan": 0.0, "last_playlists": 0.0, "refreshing": False}
 
 
 def refresh_monitored(artist_ids: list[int] | None = None):
@@ -28,7 +28,6 @@ def refresh_monitored(artist_ids: list[int] | None = None):
                 log.warning("refresh artist %s: %s", aid, e)
             time.sleep(0.5)
         search_missing()
-        playlists.sync_monitored()
     finally:
         state["refreshing"] = False
         state["last_refresh"] = time.time()
@@ -73,6 +72,11 @@ def loop():
                 plays.import_all()
             if refresh_h and now - state["last_refresh"] > refresh_h * 3600:
                 refresh_monitored()
+            pl_min = float(db.get_setting("playlist_sync_minutes") or 0)
+            if pl_min and now - state["last_playlists"] > pl_min * 60 and tidal.logged_in():
+                state["last_playlists"] = now
+                for pl in db.q("SELECT id FROM playlists WHERE monitored=1"):
+                    playlists.sync_async(pl["id"], download=True)  # queued, one at a time
         except Exception:
             log.exception("scheduler")
         time.sleep(60)
