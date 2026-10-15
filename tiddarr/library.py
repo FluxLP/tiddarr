@@ -120,8 +120,9 @@ def _dedupe(albums: list[dict]) -> tuple[list[dict], set[int]]:
     return albums, hidden
 
 
-def album_wanted_type(album_type: str) -> bool:
-    return album_type in db.get_setting("album_types").split(",")
+def album_wanted_type(album_type: str, artist: dict | None = None) -> bool:
+    types = (artist or {}).get("album_types") or db.get_setting("album_types")
+    return album_type in types.split(",")
 
 
 def refresh_artist(artist_id: int, initial_monitor: str | None = None) -> list[int]:
@@ -165,9 +166,9 @@ def refresh_artist(artist_id: int, initial_monitor: str | None = None) -> list[i
                 if c.execute("SELECT 1 FROM albums WHERE tidal_id=?", (r["tidal_id"],)).fetchone():
                     continue
                 if first_sync:
-                    monitored = initial_monitor == "all" and album_wanted_type(r["type"])
+                    monitored = initial_monitor == "all" and album_wanted_type(r["type"], artist)
                 else:
-                    monitored = bool(artist["monitor_new"]) and album_wanted_type(r["type"])
+                    monitored = bool(artist["monitor_new"]) and album_wanted_type(r["type"], artist)
                 monitored = monitored and not is_hidden
                 cur = c.execute(
                     "INSERT INTO albums(artist_id, tidal_id, title, version, type, release_date, cover, "

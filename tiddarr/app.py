@@ -89,6 +89,7 @@ def status():
         plays=plays.state,
         refreshing=scheduler.state["refreshing"],
         paused=downloader.paused(),
+        accent=db.get_setting("accent_color"),
     )
 
 
@@ -235,6 +236,19 @@ def tidal_listen(tidal_id):
     abort(404)
 
 
+@app.get("/api/tidal/listen")
+def tidal_listen_match():
+    """Listen to a song from another service: find it on Tidal first."""
+    tid = playlists.match_track({
+        "artist": request.args.get("artist", ""), "title": request.args.get("title", ""),
+        "isrc": request.args.get("isrc") or None, "album": request.args.get("album") or None,
+        "duration": int(request.args["duration"]) if (request.args.get("duration") or "").isdigit() else None,
+    })
+    if not tid:
+        abort(404)
+    return tidal_listen(tid)
+
+
 @app.get("/api/tidal/artist/<int:tidal_id>")
 def tidal_artist_preview(tidal_id):
     """Discography of an artist that is not in the library yet."""
@@ -288,7 +302,8 @@ def add_artist():
     b = body()
     a = tidal.artist(int(b["tidal_id"]))
     artist_id = library.ensure_artist(a)
-    db.run("UPDATE artists SET added_by_user=1 WHERE id=?", (artist_id,))
+    types = [x for x in (b.get("album_types") or []) if x in ("ALBUM", "EP", "SINGLE")]
+    db.run("UPDATE artists SET added_by_user=1, album_types=? WHERE id=?", (",".join(types) or None, artist_id))
     monitor = b.get("monitor", "all")
     monitor_new = bool(b.get("monitor_new", True))
     search_now = bool(b.get("search", True))
@@ -308,6 +323,7 @@ def artist(artist_id):
     a = db.one(ARTIST_LIST_SQL + " WHERE ar.id=?", (artist_id,))
     if not a:
         abort(404)
+    a["types"] = (a.get("album_types") or db.get_setting("album_types")).split(",")
     albums = db.q(
         "SELECT al.*, (SELECT status FROM queue WHERE queue.album_id=al.id ORDER BY id DESC LIMIT 1) AS queue_status "
         "FROM albums al WHERE artist_id=? ORDER BY release_date DESC, title",
@@ -327,6 +343,22 @@ def update_artist(artist_id):
             db.run(f"UPDATE artists SET {key}=? WHERE id=?", (1 if b[key] else 0, artist_id))
     if b.get("monitored") is False:
         db.run("UPDATE albums SET monitored=0 WHERE artist_id=?", (artist_id,))
+    if "album_types" in b:
+        types = [x for x in b["album_types"] if x in ("ALBUM", "EP", "SINGLE")]
+        db.run("UPDATE artists SET album_types=? WHERE id=?", (",".join(types) or None, artist_id))
+        a = db.one("SELECT * FROM artists WHERE id=?", (artist_id,))
+        if a["monitored"]:
+            # releases of deselected types are no longer wanted, newly selected ones are
+            for al in db.q("SELECT id, type, monitored FROM albums WHERE artist_id=? AND tidal_id IS NOT NULL AND hidden=0 "
+                           "AND track_files < COALESCE(num_tracks, 1)", (artist_id,)):
+                want = library.album_wanted_type(al["type"], a)
+                if want != bool(al["monitored"]):
+                    db.run("UPDATE albums SET monitored=? WHERE id=?", (1 if want else 0, al["id"]))
+                    if want:
+                        downloader.enqueue_album(al["id"])
+                    else:
+                        db.run("UPDATE queue SET status='cancelled', message='type deselected', finished_at=CURRENT_TIMESTAMP "
+                               "WHERE album_id=? AND status='queued'", (al["id"],))
     return artist(artist_id)
 
 
@@ -774,6 +806,8 @@ def update_playlist(pl_id):
     for key in ("monitored", "write_m3u"):
         if key in b:
             db.run(f"UPDATE playlists SET {key}=? WHERE id=?", (1 if b[key] else 0, pl_id))
+    if b.get("monitored"):
+        db.run("UPDATE playlists SET downloaded=1 WHERE id=?", (pl_id,))
     return jsonify(db.one("SELECT * FROM playlists WHERE id=?", (pl_id,)))
 
 

@@ -54,6 +54,7 @@ DEFAULT_SETTINGS = {
     "chart_types": "song,album,artist",
     "chart_size": "50",
     "queue_paused": "0",
+    "accent_color": "#33d6a6",
     "stale_days": "365",
     "subsonic_enabled": "1",
     "subsonic_user": "tiddarr",

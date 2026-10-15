@@ -78,8 +78,8 @@ const STRINGS = {
     never: "never", today: "today", days_ago: "{n} days ago", months_ago: "{n} months ago", years_ago: "{n} years ago",
     stale_days_label: "\"Not played for a long time\" after (days)", stale_days_help: "Songs not played for this long are listed under Songs → Not played for a long time. Nothing is deleted automatically.",
     plays_task: "Import play history", plays_task_help: "Reads \"last played\" from Music Assistant and Jellyfin.",
-    song: "Song", top_hit: "Top result", results_for: "Showing results for", preview_tidal: "Preview from Tidal",
-    own_tab: "Own", import_tab: "Import", unnamed: "Untitled", lookup_waiting: "Waiting for lookup", lookup_running: "Looking up",
+    appearance: "Appearance", accent_color: "Accent color", reset: "Reset", cannot_play: "Can't play", song: "Song", top_hit: "Top result", results_for: "Showing results for", preview_tidal: "Preview from Tidal",
+    pl_created: "Created", pl_downloaded: "Downloaded", own_tab: "Own", import_tab: "Import", unnamed: "Untitled", lookup_waiting: "Waiting for lookup", lookup_running: "Looking up",
     choose_files: "Choose CSV files", paste_text: "Paste text", csv_hint: "Spotify: export via", paste_placeholder: "Artist - Title (one per line) or CSV",
     no_imports: "No imported playlists yet – search, paste a link or import CSV files above.", no_own: "No own playlists yet – create one or add songs via right-click.",
     already_queued: "Already in the queue", pause: "Pause", resume: "Resume", clear_queue: "Clear queue", cleared: "downloads removed",
@@ -178,8 +178,8 @@ const STRINGS = {
     never: "nie", today: "heute", days_ago: "vor {n} Tagen", months_ago: "vor {n} Monaten", years_ago: "vor {n} Jahren",
     stale_days_label: "\"Lange nicht gehört\" nach (Tagen)", stale_days_help: "Songs, die so lange nicht gespielt wurden, erscheinen unter Songs → Lange nicht gehört. Gelöscht wird nie automatisch.",
     plays_task: "Wiedergabeverlauf übernehmen", plays_task_help: "Liest \"zuletzt gespielt\" aus Music Assistant und Jellyfin.",
-    song: "Song", top_hit: "Top-Treffer", results_for: "Ergebnisse für", preview_tidal: "Vorschau von Tidal",
-    own_tab: "Eigene", import_tab: "Import", unnamed: "Ohne Namen", lookup_waiting: "Wartet auf Abgleich", lookup_running: "Abgleich",
+    appearance: "Darstellung", accent_color: "Akzentfarbe", reset: "Zurücksetzen", cannot_play: "Kann nicht abgespielt werden", song: "Song", top_hit: "Top-Treffer", results_for: "Ergebnisse für", preview_tidal: "Vorschau von Tidal",
+    pl_created: "Erstellt", pl_downloaded: "Heruntergeladen", own_tab: "Eigene", import_tab: "Import", unnamed: "Ohne Namen", lookup_waiting: "Wartet auf Abgleich", lookup_running: "Abgleich",
     choose_files: "CSV-Dateien wählen", paste_text: "Text einfügen", csv_hint: "Spotify: exportieren über", paste_placeholder: "Interpret - Titel (eine Zeile pro Song) oder CSV",
     no_imports: "Noch keine importierten Playlists – oben suchen, Link einfügen oder CSV-Dateien importieren.", no_own: "Noch keine eigenen Playlists – lege eine an oder füge Songs per Rechtsklick hinzu.",
     already_queued: "Ist schon in der Warteschlange", pause: "Pausieren", resume: "Fortsetzen", clear_queue: "Warteschlange leeren", cleared: "Downloads entfernt",
@@ -207,6 +207,21 @@ const STRINGS = {
 const LANG = (navigator.language || "en").toLowerCase().startsWith("de") ? "de" : "en";
 const t = (k) => STRINGS[LANG][k] ?? STRINGS.en[k] ?? k;
 document.documentElement.lang = LANG;
+
+// ------------------------------------------------------------------ accent
+
+const DEFAULT_ACCENT = "#33d6a6";
+function applyAccent(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex || "")) hex = DEFAULT_ACCENT;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lin = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const root = document.documentElement.style;
+  root.setProperty("--accent", hex);
+  root.setProperty("--accent-ink", lum > 0.35 ? "#0b0d12" : "#ffffff");
+  try { localStorage.setItem("accent", hex); } catch { /* no storage */ }
+}
+try { applyAccent(localStorage.getItem("accent") || DEFAULT_ACCENT); } catch { applyAccent(DEFAULT_ACCENT); }
 
 // ----------------------------------------------------------------- helpers
 
@@ -279,6 +294,7 @@ async function refreshStatus() {
   try {
     const s = await api("/status");
     state.status = s;
+    if (s.accent && s.accent !== document.documentElement.style.getPropertyValue("--accent")) applyAccent(s.accent);
     $("#queueCount").textContent = s.paused ? `‖ ${s.counts.queue || 0}` : (s.counts.queue || "");
     $("#queueCount").title = s.paused ? t("paused_banner") : "";
     $("#wantedCount").textContent = s.missing || "";
@@ -317,6 +333,7 @@ let viewTimer = null;
 
 async function route() {
   clearInterval(viewTimer);
+  if (!$("#modal").hidden) closeModal();
   const hash = location.hash || "#/artists";
   $("#sidebar").classList.remove("open");
   for (const [re, fn, nav] of routes) {
@@ -464,7 +481,8 @@ async function viewArtist(id, alive) {
           ${a.tidal_id ? `
             <button class="btn ${a.monitored ? "primary" : ""}" id="mon">${a.monitored ? esc(t("monitoring")) : esc(t("monitor"))}</button>
             <label class="btn"><input type="checkbox" id="monNew" ${a.monitor_new ? "checked" : ""}> ${esc(t("monitor_new"))}</label>
-            <button class="btn" id="searchMissing">${esc(t("search_missing"))}</button>` : `<button class="btn primary" id="linkBtn">${esc(t("link_tidal"))}</button>`}
+            <button class="btn" id="searchMissing">${esc(t("search_missing"))}</button>
+            <span class="checks type-picker" title="${esc(t("album_types"))}">${["ALBUM", "EP", "SINGLE"].map((ty) => `<label><input type="checkbox" data-atype="${ty}" ${a.types.includes(ty) ? "checked" : ""}> ${esc(typeLabel(ty))}</label>`).join("")}</span>` : `<button class="btn primary" id="linkBtn">${esc(t("link_tidal"))}</button>`}
           <button class="btn" id="refresh">${esc(t("refresh"))}</button>
           <button class="btn danger" id="deleteArtist">${esc(t("delete_artist"))}</button>
         </div></div></div>
@@ -474,6 +492,11 @@ async function viewArtist(id, alive) {
     $("#toggleHidden")?.addEventListener("click", (e) => { const g = $("#hiddenGrid"); g.hidden = !g.hidden; e.target.textContent = g.hidden ? t("show") : t("hide"); });
     $("#mon")?.addEventListener("click", async () => { await act(() => put(`/artists/${id}`, { monitored: !a.monitored })); load(); });
     $("#monNew")?.addEventListener("change", (e) => act(() => put(`/artists/${id}`, { monitor_new: e.target.checked }), t("saved")));
+    main.querySelectorAll("[data-atype]").forEach((c) => (c.onchange = async () => {
+      const album_types = [...main.querySelectorAll("[data-atype]:checked")].map((x) => x.dataset.atype);
+      await act(() => put(`/artists/${id}`, { album_types }), t("saved"));
+      load(); refreshStatus();
+    }));
     $("#searchMissing")?.addEventListener("click", async () => { const r = await act(() => post(`/artists/${id}/search`)); toast(r.queued ? `${r.queued} × ${t("added_queue")}` : t("nothing_to_queue")); load(); refreshStatus(); });
     $("#refresh").addEventListener("click", async () => { await act(() => post(`/artists/${id}/refresh`), t("refresh") + " …"); setTimeout(load, 4000); });
     $("#deleteArtist").addEventListener("click", () => deleteDialog("artist", +id, a.name, `${a.albums_on_disk} ${t("albums")} · ${a.tracks} ${t("songs")} · ${bytes(a.size)}`, () => (location.hash = "#/artists")));
@@ -528,6 +551,42 @@ async function viewAlbums(_, alive) {
   render();
 }
 
+// Where to stream a song from: the file on disk, Tidal by id, or Tidal after matching
+function songSrc(x) {
+  if (x.library_track_id || x.local_id) return `/api/tracks/${x.library_track_id || x.local_id}/stream`;
+  if (x.tidal_id) return `/api/tidal/track/${x.tidal_id}/listen`;
+  const q = new URLSearchParams({ artist: x.artist || "", title: x.title || "", isrc: x.isrc || "", album: x.album || "", duration: x.duration || "" });
+  return `/api/tidal/listen?${q}`;
+}
+
+// Cover that plays the song when clicked
+function songThumb(x, cover) {
+  return `<div class="thumb playable-thumb" ${bg(cover === undefined ? x.cover : cover)} data-play-src="${esc(songSrc(x))}" data-title="${esc(x.title || "")}" data-sub="${esc(x.artist || "")}"><span class="play-overlay">${ICON_PLAY}</span></div>`;
+}
+
+// any element with data-play-src plays; the following songs of the same list are queued
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-play-src]");
+  if (!el || e.target.closest("a, input")) return;
+  e.preventDefault();
+  const scope = el.closest("table, .result-list, .grid, main") || document;
+  const all = [...scope.querySelectorAll("[data-play-src]")];
+  const list = all.map((n) => ({ src: n.dataset.playSrc, title: n.dataset.title, sub: n.dataset.sub, el: n }));
+  playQueue(list, all.indexOf(el));
+});
+
+let queue = [], queuePos = -1;
+function playQueue(list, start) {
+  queue = list; queuePos = start;
+  const x = queue[queuePos];
+  if (!x) return;
+  play({ src: x.src, title: x.title }, x.sub);
+  document.querySelectorAll(".playing").forEach((n) => n.classList.remove("playing"));
+  (x.el?.closest("tr, .result-row, .top-hit") || x.el)?.classList.add("playing");
+}
+$("#audio").addEventListener("ended", () => { if (queuePos >= 0 && queuePos < queue.length - 1) playQueue(queue, queuePos + 1); });
+$("#audio").addEventListener("error", () => { if (queue[queuePos]) toast(`${t("cannot_play")}: ${queue[queuePos].title}`, true); });
+
 function play(track, sub) {
   $("#player").hidden = false;
   $("#playerTitle").textContent = track.title;
@@ -537,6 +596,30 @@ function play(track, sub) {
   a.play().catch(() => {});
 }
 $("#playerClose").onclick = () => { $("#audio").pause(); $("#player").hidden = true; };
+
+// ---- own player controls (the native audio controls can't be themed)
+(() => {
+  const a = $("#audio"), seek = $("#plSeek"), vol = $("#plVol");
+  const fill = (el) => el.style.setProperty("--fill", `${(el.value / el.max) * 100}%`);
+  const icon = () => $("#plPlayIcon").setAttribute("d", a.paused ? "M8 5v14l11-7z" : "M7 5h4v14H7zM13 5h4v14h-4z");
+  $("#plPlay").onclick = () => (a.paused ? a.play() : a.pause());
+  $("#plPrev").onclick = () => { if (a.currentTime > 3 || queuePos <= 0) a.currentTime = 0; else playQueue(queue, queuePos - 1); };
+  $("#plNext").onclick = () => { if (queuePos >= 0 && queuePos < queue.length - 1) playQueue(queue, queuePos + 1); };
+  a.addEventListener("play", icon); a.addEventListener("pause", icon);
+  a.addEventListener("loadedmetadata", () => ($("#plDur").textContent = dur(a.duration) || "0:00"));
+  a.addEventListener("timeupdate", () => {
+    if (!seek.matches(":active") && a.duration) { seek.value = (a.currentTime / a.duration) * 1000; fill(seek); }
+    $("#plCur").textContent = dur(a.currentTime) || "0:00";
+  });
+  seek.addEventListener("input", () => { fill(seek); if (a.duration) a.currentTime = (seek.value / 1000) * a.duration; });
+  let v = 80;
+  try { v = +(localStorage.getItem("volume") ?? 80); } catch { /* no storage */ }
+  vol.value = v; a.volume = v / 100; fill(vol); fill(seek);
+  vol.addEventListener("input", () => { a.volume = vol.value / 100; fill(vol); try { localStorage.setItem("volume", vol.value); } catch { /* no storage */ } });
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && !$("#player").hidden && !e.target.closest("input, textarea, select, button")) { e.preventDefault(); $("#plPlay").click(); }
+  });
+})();
 
 async function viewAlbum(id, alive) {
   const load = async () => {
@@ -560,12 +643,15 @@ async function viewAlbum(id, alive) {
       </div></div>
       ${tracks.length ? `<h2>${esc(t("files"))}</h2><table class="list"><tr><th class="num">#</th><th>${esc(t("title"))}</th><th class="hide-sm">${esc(t("artist"))}</th><th class="hide-sm">${esc(t("format"))}</th><th>${esc(t("duration"))}</th><th></th></tr>
         ${tracks.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td class="num">${x.disc_no > 1 ? x.disc_no + "." : ""}${x.track_no ?? ""}</td><td title="${esc(x.path)}">${esc(x.title)}</td><td class="hide-sm muted">${esc(x.artist)}</td><td class="hide-sm muted nowrap">${esc(quality(x))}</td><td class="muted">${dur(x.duration)}</td>
-        <td class="row-actions"><button class="icon-btn" data-play="${x.id}" title="${esc(t("play"))}">${ICON_PLAY}</button></td></tr>`).join("")}</table>` : ""}
+        <td class="row-actions"><button class="icon-btn" data-play-src="/api/tracks/${x.id}/stream" data-title="${esc(x.title)}" data-sub="${esc(a.artist_name)}" title="${esc(t("play"))}">${ICON_PLAY}</button></td></tr>`).join("")}</table>` : ""}
       ${remote.length ? `<h2>${esc(t("on_tidal"))}</h2><table class="list"><tr><th class="num">#</th><th>${esc(t("title"))}</th><th class="hide-sm">${esc(t("artist"))}</th><th>${esc(t("duration"))}</th><th></th></tr>
         ${remote.map((x) => `<tr><td class="num">${x.disc_no > 1 ? x.disc_no + "." : ""}${x.track_no}</td><td>${esc(x.title)}</td><td class="hide-sm muted">${esc(x.artist)}</td><td class="muted">${dur(x.duration)}</td>
-        <td class="row-actions">${x.on_disk ? `<span class="badge ok">${esc(t("on_disk"))}</span>` : `<button class="btn small" data-dltrack="${x.tidal_id}">${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>` : ""}
+        <td class="row-actions"><button class="icon-btn" data-play-src="/api/tidal/track/${x.tidal_id}/listen" data-title="${esc(x.title)}" data-sub="${esc(x.artist || "")}" title="${esc(t("preview_tidal"))}">${ICON_PLAY}</button>
+          ${x.on_disk ? `<span class="badge ok">${esc(t("on_disk"))}</span>` : `<button class="btn small" data-dltrack="${x.tidal_id}">${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>` : ""}
       ${queue.length ? `<h2>${esc(t("history"))}</h2><table class="list">${queue.map((j) => `<tr><td>${jobBadge(j.status)}</td><td class="muted">${esc(j.message || "")}</td><td class="muted nowrap">${esc(j.finished_at || j.created_at)}</td><td class="row-actions"><button class="btn small" data-log="${j.id}">${esc(t("log"))}</button></td></tr>`).join("")}</table>` : ""}`;
-    main.querySelectorAll("[data-play]").forEach((b) => (b.onclick = () => play(tracks.find((x) => x.id === +b.dataset.play), `${a.artist_name} – ${a.full_title}`)));
+    // clicking the album cover plays the album
+    const art = main.querySelector(".hero .art");
+    if (art && tracks.length) { art.classList.add("playable-art"); art.innerHTML = `<span class="play-overlay">${ICON_PLAY}</span>`; art.onclick = () => main.querySelector("[data-play-src]")?.click(); }
     main.querySelectorAll("[data-dltrack]").forEach((b) => (b.onclick = async () => { b.disabled = true; await act(() => post("/tracks/download", { tidal_id: +b.dataset.dltrack }), t("added_queue")); refreshStatus(); }));
     main.querySelectorAll("[data-log]").forEach((b) => (b.onclick = () => showLog(+b.dataset.log)));
     $("#albumToPl")?.addEventListener("click", () => addToPlaylistDialog({ album_id: +id }, a.full_title));
@@ -641,7 +727,7 @@ async function viewStale(alive) {
       ${trackingDays < d.days ? `<div class="banner">${esc(t("stale_tracking").replace("{since}", new Date(d.since * 1000).toLocaleDateString()).replace("{n}", d.days))}</div>` : ""}
       ${d.items.length ? `<table class="list" id="tbl"><tr><th style="width:28px"><input type="checkbox" id="selAll"></th><th></th><th>${esc(t("title"))}</th><th class="hide-sm">${esc(t("album"))}</th>
         <th>${esc(t("last_played"))}</th><th class="hide-sm">${esc(t("plays"))}</th><th class="hide-sm">${esc(t("size"))}</th></tr>
-        ${d.items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td><input type="checkbox" data-sel="${x.id}"></td><td style="width:48px"><div class="thumb" ${bg(x.cover_url)}></div></td>
+        ${d.items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td><input type="checkbox" data-sel="${x.id}"></td><td style="width:48px">${songThumb({ local_id: x.id, title: x.title, artist: x.artist || x.artist_name }, x.cover_url)}</td>
           <td>${esc(x.title)}<div class="muted small"><a href="#/artist/${x.artist_id}">${esc(x.artist || x.artist_name)}</a></div></td>
           <td class="hide-sm"><a class="muted" href="#/album/${x.album_id}">${esc(x.album)}</a></td><td class="nowrap">${esc(ago(x.last_played))}</td>
           <td class="hide-sm muted">${x.play_count}</td><td class="hide-sm muted nowrap">${bytes(x.size)}</td></tr>`).join("")}</table>`
@@ -688,14 +774,10 @@ async function viewTracks(_, alive) {
     $("#count").textContent = `${total} ${t("songs")}`;
     $("#more").hidden = offset >= total;
     $("#tbl").innerHTML = `<tr><th style="width:28px"><input type="checkbox" id="selAll" title="${esc(t("select_all"))}"></th><th></th><th>${esc(t("title"))}</th><th>${esc(t("artist"))}</th><th class="hide-sm">${esc(t("album"))}</th><th class="hide-sm">${esc(t("format"))}</th><th>${esc(t("duration"))}</th></tr>` +
-      items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td><input type="checkbox" data-sel="${x.id}" ${sel.has(x.id) ? "checked" : ""}></td><td style="width:46px"><button class="icon-btn" data-play="${x.id}">${ICON_PLAY}</button></td><td>${esc(x.title)}</td>
+      items.map((x) => `<tr data-ctx="track:${x.id}" data-label="${esc(x.title)}"><td><input type="checkbox" data-sel="${x.id}" ${sel.has(x.id) ? "checked" : ""}></td><td style="width:52px">${songThumb({ local_id: x.id, title: x.title, artist: x.artist || x.artist_name }, x.cover_url)}</td><td>${esc(x.title)}</td>
         <td><a href="#/artist/${x.artist_id}">${esc(x.artist || x.artist_name)}</a></td><td class="hide-sm"><a class="muted" href="#/album/${x.album_id}">${esc(x.album)}</a></td>
         <td class="hide-sm muted nowrap">${esc((x.format || "").toUpperCase())}${x.bits ? ` ${x.bits}/${(x.sample_rate / 1000).toFixed(1)}` : ""}</td><td class="muted">${dur(x.duration)}</td></tr>`).join("");
   };
-  $("#tbl").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-play]");
-    if (b) { const x = items.find((i) => i.id === +b.dataset.play); play(x, `${x.artist || x.artist_name} – ${x.album}`); }
-  });
   const updSel = () => {
     $("#selInfo").textContent = sel.size ? `${sel.size} ${t("selected")}` : "";
     $("#selAdd").disabled = !sel.size;
@@ -805,13 +887,14 @@ async function addArtistDialog(tidalId, name) {
   const types = s.album_types.split(",");
   const m = modal(`<h2>${esc(t("add_artist"))}: ${esc(name)}</h2>
     ${[["all", "monitor_all"], ["future", "monitor_future"], ["none", "monitor_none"]].map(([v, k], i) => `<label class="option"><input type="radio" name="mon" value="${v}" ${i === 0 ? "checked" : ""}><div><b>${esc(t(k))}</b><small>${esc(t(k + "_help"))}</small></div></label>`).join("")}
-    <div class="form-row"><label>${esc(t("album_types"))}</label><div class="checks">${["ALBUM", "EP", "SINGLE"].map((ty) => `<label><input type="checkbox" disabled ${types.includes(ty) ? "checked" : ""}> ${esc(typeLabel(ty))}</label>`).join("")}</div></div>
+    <div class="form-row"><label>${esc(t("album_types"))}</label><div class="checks">${["ALBUM", "EP", "SINGLE"].map((ty) => `<label><input type="checkbox" name="atype" value="${ty}" ${types.includes(ty) ? "checked" : ""}> ${esc(typeLabel(ty))}</label>`).join("")}</div></div>
     <label class="checks" style="margin:6px 0"><label><input type="checkbox" id="monNew" ${s.monitor_new_default === "1" ? "checked" : ""}> ${esc(t("monitor_new"))}</label></label>
     <label class="checks" style="margin:6px 0"><label><input type="checkbox" id="searchNow" checked> ${esc(t("start_search"))}</label></label>
     <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button><button class="btn primary" id="go">${esc(t("add"))}</button></div>`);
   $("#go", m).onclick = async () => {
     const monitor = m.querySelector("input[name=mon]:checked").value;
-    const r = await act(() => post("/artists", { tidal_id: tidalId, monitor, monitor_new: $("#monNew", m).checked, search: $("#searchNow", m).checked }), t("added"));
+    const album_types = [...m.querySelectorAll("input[name=atype]:checked")].map((c) => c.value);
+    const r = await act(() => post("/artists", { tidal_id: tidalId, monitor, monitor_new: $("#monNew", m).checked, search: $("#searchNow", m).checked, album_types }), t("added"));
     closeModal();
     location.hash = `#/artist/${r.id}`;
     setTimeout(refreshStatus, 3000);
@@ -935,6 +1018,71 @@ function playlistCard(p) {
     <div>${p.monitored ? `<span class="badge ok">${esc(t("monitor_pl"))}</span> ` : ""}${sync ? `<span class="badge info">${p.sync.queued_sync ? esc(t("lookup_waiting")) : `${esc(t("lookup_running"))} ${p.sync.done}/${p.sync.total}`}</span>` : ""}</div></div></a>`;
 }
 
+function importDialog(searchable, mode0) {
+  const m = modal(`<h2>${esc(t("import_playlist"))}</h2>
+    <div class="seg" id="plModes" style="margin-bottom:12px">${[["search", "search"], ["url", "pl_url"], ["csv", "pl_csv"]].map(([k, l]) => `<button data-m="${k}">${esc(t(l))}</button>`).join("")}</div>
+    <form data-mode="search" id="plSearch" class="import-row"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
+      <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}"><button class="btn primary">${esc(t("search"))}</button></form>
+    <form data-mode="url" id="plLink" class="import-row"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}"><button class="btn primary">${esc(t("open"))}</button></form>
+    <div data-mode="csv">
+      <div class="import-row"><label class="btn primary">${esc(t("choose_files"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" multiple hidden></label>
+        <span class="muted small">${esc(t("csv_hint"))} <a href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a></span></div>
+      <details style="margin-top:12px"><summary class="muted small" style="cursor:pointer">${esc(t("paste_text"))}</summary>
+        <input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="width:100%;margin:8px 0">
+        <textarea id="impText" rows="5" placeholder="${esc(t("paste_placeholder"))}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
+        <button class="btn primary" id="impGo" style="margin-top:8px">${esc(t("import_go"))}</button></details></div>
+    <div id="plResults" style="margin-top:14px;max-height:50vh;overflow:auto"></div>
+    <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button></div>`);
+  m.classList.add("wide");
+  const setMode = (k) => {
+    localStorage.setItem("plMode", k);
+    $("#plModes", m).querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === k));
+    m.querySelectorAll("[data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== k));
+    $("#plResults", m).innerHTML = "";
+    (m.querySelector(`[data-mode="${k}"] input:not([type=file])`) || {}).focus?.();
+  };
+  $("#plModes", m).onclick = (e) => { if (e.target.dataset.m) setMode(e.target.dataset.m); };
+  setMode(mode0);
+  $("#plSearch", m).onsubmit = async (e) => {
+    e.preventDefault();
+    const q = $("#plQ", m).value.trim(); if (!q) return;
+    $("#plResults", m).innerHTML = `<span class="spinner"></span>`;
+    try {
+      const list = await api(`/services/${$("#plSvc", m).value}/search?q=${encodeURIComponent(q)}`);
+      $("#plResults", m).innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="muted">${esc(t("no_results"))}</div>`;
+    } catch (err) { $("#plResults", m).innerHTML = `<div class="banner err">${esc(err.message)}</div>`; }
+  };
+  $("#plLink", m).onsubmit = (e) => {
+    e.preventDefault();
+    const r = parsePlaylistLink($("#plUrl", m).value);
+    if (!r) return toast(t("no_results"), true);
+    if (r[0] === "spotify") {
+      $("#plResults", m).innerHTML = `<div class="banner">${esc(t("sp_link_hint"))} <a class="btn small primary" href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a></div>`;
+      return;
+    }
+    closeModal();
+    location.hash = `#/playlist/${r[0]}/${encodeURIComponent(r[1])}`;
+  };
+  const fileName = (f) => f.name.replace(/\.\w+$/, "").replace(/_/g, " ");
+  $("#impFile", m).onchange = async (e) => {
+    let n = 0;
+    for (const f of [...e.target.files]) {
+      try { await post("/import/text", { name: fileName(f), text: await f.text() }); n++; }
+      catch (err) { toast(`${f.name}: ${err.message}`, true); }
+    }
+    toast(`${n} ${t("files_imported")}`);
+    localStorage.setItem("plTab", "import");
+    closeModal(); route();
+  };
+  $("#impGo", m).onclick = async () => {
+    const r = await act(() => post("/import/text", { name: $("#impName", m).value || "Import", text: $("#impText", m).value }));
+    toast(`${r.tracks} ${t("songs")} ${t("imported")}`);
+    closeModal(); location.hash = `#/saved/${r.id}`;
+  };
+  // playlist cards in the results navigate away
+  $("#plResults", m).addEventListener("click", (e) => { if (e.target.closest("a.card")) closeModal(); });
+}
+
 async function viewPlaylists(_, alive) {
   const [svcs, saved] = await Promise.all([api("/services"), api("/playlists")]);
   if (!alive()) return;
@@ -945,80 +1093,24 @@ async function viewPlaylists(_, alive) {
   const searchable = svcs.filter((x) => x.can_search && (x.id !== "youtube" || x.available));
   const mode0 = ["search", "url", "csv"].includes(localStorage.getItem("plMode")) ? localStorage.getItem("plMode") : "search";
 
-  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1><span class="spacer"></span>
-      <button class="btn primary" id="newPlBtn">${esc(t("new_playlist"))}</button><a class="btn" href="#/settings/accounts">${esc(t("services"))}</a></div>
-    <div class="import-bar">
-      <div class="seg" id="plModes">${[["search", "search"], ["url", "pl_url"], ["csv", "pl_csv"]].map(([m, k]) => `<button data-m="${m}">${esc(t(k))}</button>`).join("")}</div>
-      <form data-mode="search" id="plSearch" class="import-row"><select id="plSvc">${searchable.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
-        <input type="search" id="plQ" placeholder="${esc(t("search_playlists"))}"><button class="btn primary">${esc(t("search"))}</button></form>
-      <form data-mode="url" id="plLink" class="import-row"><input type="text" id="plUrl" placeholder="${esc(t("paste_link"))}"><button class="btn primary">${esc(t("open"))}</button></form>
-      <div data-mode="csv" class="import-row"><label class="btn primary">${esc(t("choose_files"))}<input type="file" id="impFile" accept=".csv,.txt,text/*" multiple hidden></label>
-        <button class="btn" id="pasteToggle" type="button">${esc(t("paste_text"))}</button>
-        <span class="muted small">${esc(t("csv_hint"))} <a href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a></span></div>
-    </div>
-    <div id="pastePanel" class="panel" hidden><div class="toolbar"><input type="text" id="impName" placeholder="${esc(t("import_name"))}" style="flex:1"></div>
-      <textarea id="impText" rows="5" placeholder="${esc(t("paste_placeholder"))}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:inherit;font:12px ui-monospace,monospace"></textarea>
-      <div class="toolbar" style="margin:10px 0 0"><button class="btn primary" id="impGo">${esc(t("import_go"))}</button></div></div>
-    <div id="plResults"></div>
+  main.innerHTML = `${loginBanner()}<div class="toolbar"><h1>${esc(t("nav_playlists"))}</h1>
+      <input type="search" id="plFind" placeholder="${esc(t("find_playlist"))}" style="flex:1;min-width:180px;max-width:360px">
+      <span class="spacer"></span>
+      <button class="btn" id="newPlBtn">${esc(t("new_playlist"))}</button>
+      <button class="btn primary" id="importBtn">${esc(t("import_playlist"))}</button></div>
     <div class="tabs" id="plTabs">${tabs.map(([id, label]) => `<button data-tab="${id}">${esc(label)}</button>`).join("")}</div>
     <div id="plFilter"></div><div id="plList"></div>`;
 
-  // ---- import bar
-  const setMode = (m) => {
-    localStorage.setItem("plMode", m);
-    $("#plModes").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
-    main.querySelectorAll(".import-bar [data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== m));
-    if (m !== "csv") $("#pastePanel").hidden = true;
-  };
-  $("#plModes").onclick = (e) => { if (e.target.dataset.m) setMode(e.target.dataset.m); };
-  setMode(mode0);
-  $("#pasteToggle").onclick = () => { $("#pastePanel").hidden = !$("#pastePanel").hidden; };
-  const results = (html) => {
-    $("#plResults").innerHTML = html ? `<div class="results-box"><button class="icon-btn results-close" title="${esc(t("cancel"))}"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>${html}</div>` : "";
-    $("#plResults .results-close")?.addEventListener("click", () => results(""));
-  };
-  $("#plSearch").onsubmit = async (e) => {
-    e.preventDefault();
-    const q = $("#plQ").value.trim(); if (!q) return;
-    results(`<span class="spinner"></span>`);
-    try {
-      const list = await api(`/services/${$("#plSvc").value}/search?q=${encodeURIComponent(q)}`);
-      results(list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="muted">${esc(t("no_results"))}</div>`);
-    } catch (err) { results(`<div class="banner err">${esc(err.message)}</div>`); }
-  };
-  $("#plLink").onsubmit = (e) => {
-    e.preventDefault();
-    const r = parsePlaylistLink($("#plUrl").value);
-    if (!r) return toast(t("no_results"), true);
-    if (r[0] === "spotify") {
-      results(`<div class="banner">${esc(t("sp_link_hint"))} <a class="btn small primary" href="https://exportify.net" target="_blank" rel="noopener">Exportify ↗</a> <button class="btn small" id="toCsv">${esc(t("pl_csv"))}</button></div>`);
-      $("#toCsv").onclick = () => { results(""); setMode("csv"); };
-      return;
-    }
-    location.hash = `#/playlist/${r[0]}/${encodeURIComponent(r[1])}`;
-  };
-  const fileName = (f) => f.name.replace(/\.\w+$/, "").replace(/_/g, " ");
-  $("#impFile").onchange = async (e) => {
-    const files = [...e.target.files];
-    let n = 0;
-    for (const f of files) {
-      try { await post("/import/text", { name: fileName(f), text: await f.text() }); n++; }
-      catch (err) { toast(`${f.name}: ${err.message}`, true); }
-    }
-    toast(`${n} ${t("files_imported")}`);
-    localStorage.setItem("plTab", "import");
-    route();
-  };
-  $("#impGo").onclick = async () => {
-    const r = await act(() => post("/import/text", { name: $("#impName").value || "Import", text: $("#impText").value }));
-    toast(`${r.tracks} ${t("songs")} ${t("imported")}`);
-    location.hash = `#/saved/${r.id}`;
-  };
+  $("#importBtn").onclick = () => importDialog(searchable, mode0);
   $("#newPlBtn").onclick = () => {
     const m = modal(`<h2>${esc(t("new_playlist"))}</h2><form class="toolbar" id="npf" style="margin:0"><input type="text" id="npn" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("create"))}</button></form>`);
     $("#npn", m).focus();
     $("#npf", m).onsubmit = async (e) => { e.preventDefault(); const r = await act(() => post("/playlists", { name: $("#npn", m).value })); closeModal(); location.hash = `#/saved/${r.id}`; };
   };
+  // search in the playlists of the current tab
+  let find = "";
+  const matches = (p) => !find || (p.name || "").toLowerCase().includes(find) || (p.owner || "").toLowerCase().includes(find);
+  $("#plFind").addEventListener("input", (e) => { find = e.target.value.trim().toLowerCase(); showTab(tab); });
 
   // ---- tabs
   let filter = localStorage.getItem("plFilter") || "all";
@@ -1035,15 +1127,27 @@ async function viewPlaylists(_, alive) {
     } else $("#plFilter").innerHTML = "";
     $("#plList").innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="empty">${esc(t(withFilter ? "no_imports" : "no_own"))}</div>`;
   };
+  const remoteCache = {};
   const showTab = async (id) => {
     tab = id; localStorage.setItem("plTab", id);
     $("#plTabs").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.tab === id));
-    if (id === "own") return showSaved(saved.filter((p) => p.service === "local"), false);
-    if (id === "import") return showSaved(saved.filter((p) => p.service !== "local"), true);
+    if (id === "own") {
+      $("#plFilter").innerHTML = "";
+      const created = saved.filter((p) => p.service === "local" && matches(p));
+      // imported playlists you downloaded (download all / keep complete) or that are complete on disk
+      const downloaded = saved.filter((p) => p.service !== "local" && matches(p) && (p.downloaded || (p.count > 0 && p.owned === p.count)));
+      $("#plList").innerHTML = (created.length || downloaded.length)
+        ? `${created.length ? `<h2>${esc(t("pl_created"))}</h2><div class="grid">${created.map(playlistCard).join("")}</div>` : ""}
+           ${downloaded.length ? `<h2>${esc(t("pl_downloaded"))}</h2><div class="grid">${downloaded.map(playlistCard).join("")}</div>` : ""}`
+        : `<div class="empty">${esc(t("no_own"))}</div>`;
+      return;
+    }
+    if (id === "import") return showSaved(saved.filter((p) => p.service !== "local" && matches(p)), true);
     $("#plFilter").innerHTML = "";
     $("#plList").innerHTML = `<span class="spinner"></span>`;
     try {
-      const list = await api(`/services/${id}/playlists`);
+      remoteCache[id] = remoteCache[id] || await api(`/services/${id}/playlists`);
+      const list = remoteCache[id].filter(matches);
       if (!alive() || tab !== id) return;
       $("#plList").innerHTML = list.length ? `<div class="grid">${list.map(playlistCard).join("")}</div>` : `<div class="empty">${esc(t("no_results"))}</div>`;
     } catch (e) { $("#plList").innerHTML = `<div class="banner err">${esc(e.message)}</div>`; }
@@ -1055,7 +1159,7 @@ async function viewPlaylists(_, alive) {
     if (tab !== "import" || !saved.some((p) => p.sync && p.sync.running)) return;
     const fresh = await api("/playlists");
     saved.splice(0, saved.length, ...fresh);
-    if (tab === "import") showSaved(saved.filter((p) => p.service !== "local"), true);
+    if (tab === "import") showSaved(saved.filter((p) => p.service !== "local" && matches(p)), true);
   }, 5000);
 }
 
@@ -1064,7 +1168,7 @@ function playlistTrackTable(tracks, withState) {
     x.state === "queued" ? `<span class="badge info">${esc(t("queued"))}</span>` :
     x.state === "notfound" ? `<span class="badge err">${esc(t("not_found"))}</span>` :
     x.state === "matched" ? `<span class="badge">${esc(t("on_tidal"))}</span>` : "";
-  return `<table class="list">${tracks.map((x, i) => `<tr><td class="num">${i + 1}</td><td style="width:48px"><div class="thumb" ${bg(x.cover)}></div></td>
+  return `<table class="list">${tracks.map((x, i) => `<tr><td class="num">${i + 1}</td><td style="width:48px">${songThumb(x)}</td>
     <td>${esc(x.title)}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album || "")}</td><td class="muted hide-sm">${dur(x.duration)}</td>
     <td class="row-actions">${x.owned || (withState && x.state === "queued") || x.state === "notfound" ? stateBadge(x) : `${stateBadge(x)} <button class="btn small" data-pt="${i}">${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>`;
 }
@@ -1110,7 +1214,7 @@ function renderLocalPlaylist(p, tracks) {
     <p class="muted small" style="margin:0">${esc(t("own_playlist"))}</p>
     <div class="toolbar" style="margin:6px 0 0"><a class="btn" href="#/tracks">${esc(t("add_to_playlist"))} →</a><button class="btn danger" id="del">${esc(t("delete"))}</button></div></div></div>
     ${tracks.length ? `<table class="list">${tracks.map((x, i) => `<tr><td class="num">${i + 1}</td>
-      <td style="width:46px">${x.track_id ? `<button class="icon-btn" data-play="${i}">${ICON_PLAY}</button>` : ""}</td>
+      <td style="width:48px">${songThumb({ ...x, library_track_id: x.library_track_id || x.track_id })}</td>
       <td>${esc(x.title)}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album || "")}</td><td class="muted hide-sm">${dur(x.duration)}</td>
       <td class="row-actions"><button class="btn small" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} title="${esc(t("move_up"))}">↑</button><button class="btn small" data-mv="${i}" data-d="1" ${i === tracks.length - 1 ? "disabled" : ""} title="${esc(t("move_down"))}">↓</button>
         <button class="btn small danger" data-rm="${x.id}">${esc(t("remove_from_playlist"))}</button></td></tr>`).join("")}</table>` : `<div class="empty">${esc(t("no_results"))}</div>`}`;
@@ -1119,14 +1223,13 @@ function renderLocalPlaylist(p, tracks) {
   $("#renameForm").onsubmit = async (e) => { e.preventDefault(); await act(() => put(`/playlists/${p.id}`, { name: $("#plName").value }), t("saved")); reload(); };
   $("#del").onclick = async () => { await act(() => del(`/playlists/${p.id}`)); location.hash = "#/playlists"; };
   main.addEventListener("click", async (e) => {
-    const rm = e.target.closest("[data-rm]"), mv = e.target.closest("[data-mv]"), pl = e.target.closest("[data-play]");
+    const rm = e.target.closest("[data-rm]"), mv = e.target.closest("[data-mv]");
     if (rm) { await act(() => del(`/playlists/${p.id}/tracks/${rm.dataset.rm}`)); reload(); }
     if (mv) {
       const i = +mv.dataset.mv, j = i + +mv.dataset.d, ids = tracks.map((x) => x.id);
       [ids[i], ids[j]] = [ids[j], ids[i]];
       await act(() => put(`/playlists/${p.id}/order`, { entry_ids: ids })); reload();
     }
-    if (pl) { const x = tracks[+pl.dataset.play]; play({ id: x.track_id, title: x.title }, `${x.artist} – ${p.name}`); }
   });
   return false;
 }
@@ -1180,7 +1283,7 @@ function sugAlbumCard(a) {
 
 function sugTrackRows(list) {
   return `<table class="list">${list.map((x) => `<tr>
-    <td class="num">${x.rank ? x.rank : ""}</td><td style="width:48px"><div class="thumb" ${bg(x.cover)}></div></td>
+    <td class="num">${x.rank ? x.rank : ""}</td><td style="width:48px">${songThumb(x)}</td>
     <td>${esc(x.title)}<div class="muted small">${esc(x.artist)}</div></td><td class="hide-sm muted">${esc(x.album || "")}</td><td class="muted hide-sm">${dur(x.duration)}</td>
     <td class="row-actions">${x.owned ? `<span class="badge ok">${esc(t("owned"))}</span>` : `<button class="btn small" data-sug='${esc(JSON.stringify({ kind: "track", tidal_id: x.tidal_id || null, artist: x.artist, title: x.title }))}'>${esc(t("download"))}</button>`}</td></tr>`).join("")}</table>`;
 }
@@ -1458,6 +1561,11 @@ async function viewSettings(tab, alive) {
       <h3 style="margin-top:16px">${esc(t("artwork_settings"))}</h3>
       <div class="form-row"><label>${esc(t("embed_artwork"))}</label><div class="checks"><label><input type="checkbox" name="embed_artwork" ${s.embed_artwork === "1" ? "checked" : ""}></label></div></div>
       <div class="form-row"><label>${esc(t("folder_artwork"))}</label><div class="checks"><label><input type="checkbox" name="folder_artwork" ${s.folder_artwork === "1" ? "checked" : ""}></label></div></div>
+      <h3 style="margin-top:16px">${esc(t("appearance"))}</h3>
+      <div class="form-row"><label>${esc(t("accent_color"))}</label><div class="toolbar" style="margin:0">
+        <input type="color" name="accent_color" id="accentPick" value="${esc(s.accent_color || DEFAULT_ACCENT)}">
+        ${["#33d6a6", "#3b82f6", "#a855f7", "#ec4899", "#f97316", "#eab308", "#ef4444", "#14b8a6"].map((c) => `<button type="button" class="swatch" data-color="${c}" style="background:${c}" title="${c}"></button>`).join("")}
+        <button type="button" class="btn small" id="accentReset">${esc(t("reset"))}</button></div></div>
       <h3 style="margin-top:16px">${esc(t("charts"))}</h3>
       <p class="muted small" style="margin:-4px 0 6px">${esc(t("chart_help"))}</p>
       <div class="form-row"><label>${esc(t("chart_types"))}</label><div class="checks">${[["song", "chart_songs"], ["album", "chart_albums"], ["artist", "chart_artists"]].map(([k, l]) => `<label><input type="checkbox" name="ctype" value="${k}" ${(s.chart_types || "").split(",").includes(k) ? "checked" : ""}> ${esc(t(l))}</label>`).join("")}</div></div>
@@ -1476,12 +1584,19 @@ async function viewSettings(tab, alive) {
       monitor_new_default: f.get("monitor_new_default") ? "1" : "0", refresh_hours: f.get("refresh_hours"),
       scan_hours: f.get("scan_hours"), threads: f.get("threads"), stale_days: f.get("stale_days"),
       embed_artwork: f.get("embed_artwork") ? "1" : "0", folder_artwork: f.get("folder_artwork") ? "1" : "0",
+      accent_color: f.get("accent_color"),
       chart_countries: f.getAll("chart").join(","), chart_types: f.getAll("ctype").join(","), chart_size: f.get("chart_size"),
     }), t("saved"));
   };
 
   renderServices();
   renderIntegrations();
+  // live preview of the accent color, saved with the form (or right away for swatches/reset)
+  const setAccent = async (c, save) => { $("#accentPick").value = c; applyAccent(c); if (save) await act(() => put("/settings", { accent_color: c }), t("saved")); };
+  $("#accentPick").addEventListener("input", (e) => applyAccent(e.target.value));
+  $("#accentPick").addEventListener("change", (e) => setAccent(e.target.value, true));
+  main.querySelectorAll(".swatch").forEach((b) => (b.onclick = () => setAccent(b.dataset.color, true)));
+  $("#accentReset").onclick = () => setAccent(DEFAULT_ACCENT, true);
   $("#browseBtn").onclick = () => folderDialog($("#musicDir").value, (p) => ($("#musicDir").value = p));
 
   api("/suggest/sources").then((src) => {

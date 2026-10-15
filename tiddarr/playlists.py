@@ -64,7 +64,12 @@ def find_in_library(idx: dict, t: dict) -> dict | None:
 
 def mark_owned(tracks: list[dict]) -> list[dict]:
     idx = library_index()
-    return [{**t, "owned": bool(find_in_library(idx, t))} for t in tracks]
+    out = []
+    for t in tracks:
+        hit = find_in_library(idx, t)
+        cover = t.get("cover") or (image(hit.get("cover"), 160) if hit else None)
+        out.append({**t, "cover": cover, "owned": bool(hit), "library_track_id": hit["id"] if hit else None})
+    return out
 
 
 # ------------------------------------------------------------ tidal match
@@ -177,6 +182,8 @@ def sync(pl_id: int, download: bool = False):
         return
     st = sync_state.setdefault(pl_id, {})
     st.update(running=True, queued_sync=False, done=0, total=0, queued=0, not_found=0, message="")
+    if download:
+        db.run("UPDATE playlists SET downloaded=1 WHERE id=?", (pl_id,))
     try:
         if pl["service"] not in ("file", "local"):
             ref = pl["url"] if pl["service"] == "apple" else pl["remote_id"]

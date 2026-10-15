@@ -106,6 +106,10 @@ MIGRATIONS = [
     ("tracks", "first_seen", "REAL", "UPDATE tracks SET first_seen=CAST(strftime('%s','now') AS REAL)"),
     # artists the user added on purpose (search, link); others are helpers for single-song downloads
     ("artists", "added_by_user", "INTEGER NOT NULL DEFAULT 0", "UPDATE artists SET added_by_user=1 WHERE last_refresh IS NOT NULL"),
+    # user asked to download the whole playlist (download all / keep complete)
+    ("artists", "album_types", "TEXT", None),  # per artist; NULL = global setting
+    ("playlists", "downloaded", "INTEGER NOT NULL DEFAULT 0",
+     "UPDATE playlists SET downloaded=1 WHERE monitored=1 OR EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id=playlists.id AND t.state='queued')"),
 ]
 
 

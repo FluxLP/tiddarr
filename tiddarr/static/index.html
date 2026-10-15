@@ -32,8 +32,15 @@
 <main id="main"></main>
 <div class="player" id="player" hidden>
   <div class="player-info"><b id="playerTitle"></b><span id="playerSub"></span></div>
-  <audio id="audio" controls></audio>
+  <div class="player-ctrl">
+    <button class="icon-btn" id="plPrev" aria-label="Previous"><svg class="ico" viewBox="0 0 24 24"><path d="M6 5v14M18 6 9 12l9 6z" class="fill"/></svg></button>
+    <button class="pl-play" id="plPlay" aria-label="Play/Pause"><svg class="ico" viewBox="0 0 24 24"><path id="plPlayIcon" d="M8 5v14l11-7z" class="fill"/></svg></button>
+    <button class="icon-btn" id="plNext" aria-label="Next"><svg class="ico" viewBox="0 0 24 24"><path d="M18 5v14M6 6l9 6-9 6z" class="fill"/></svg></button>
+  </div>
+  <div class="player-seek"><span id="plCur">0:00</span><input type="range" id="plSeek" min="0" max="1000" value="0" aria-label="Seek"><span id="plDur">0:00</span></div>
+  <div class="player-vol"><svg class="ico" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z" class="fill"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg><input type="range" id="plVol" min="0" max="100" value="80" aria-label="Volume"></div>
   <button class="icon-btn" id="playerClose" aria-label="Close"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  <audio id="audio" preload="metadata"></audio>
 </div>
 <div class="modal-bg" id="modal" hidden><div class="modal" id="modalBody"></div></div>
 <div class="toasts" id="toasts"></div>
