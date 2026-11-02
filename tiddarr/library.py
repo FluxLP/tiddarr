@@ -186,9 +186,9 @@ def refresh_artist(artist_id: int, initial_monitor: str | None = None) -> list[i
         # Albums that turned out to be on disk already are not downloaded.
         return [
             a["id"] for a in db.q(
-                f"SELECT id, track_files, num_tracks FROM albums WHERE id IN ({','.join('?' * len(to_download))})",
+                f"SELECT id, track_files, num_tracks, available_tracks FROM albums WHERE id IN ({','.join('?' * len(to_download))})",
                 to_download,
-            ) if (a["track_files"] or 0) < (a["num_tracks"] or 1)
+            ) if (a["track_files"] or 0) < (a["available_tracks"] or a["num_tracks"] or 1)
         ] if to_download else []
 
 

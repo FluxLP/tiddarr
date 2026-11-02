@@ -6,6 +6,8 @@ cover what has to be known before the database exists.
 """
 
 import os
+import shlex
+import sys
 from pathlib import Path
 
 # Permissions of downloaded files and folders. Music libraries are usually
@@ -35,8 +37,14 @@ PASSWORD = os.environ.get("TIDDARR_PASSWORD", "")
 # Default for the library setting on first start.
 DEFAULT_MUSIC_DIR = os.environ.get("TIDDARR_MUSIC_DIR", "/music")
 
-# Command used to run tiddl; override if it is not on PATH.
-TIDDL_BIN = os.environ.get("TIDDARR_TIDDL_BIN", "tiddl")
+# Command used to run tiddl. By default tiddl runs through a small wrapper that
+# asks Tidal for stereo streams (see tiddl_stereo.py); set TIDDARR_TIDDL_BIN to
+# run a different tiddl executable instead.
+TIDDL_CMD = (
+    shlex.split(os.environ["TIDDARR_TIDDL_BIN"])
+    if os.environ.get("TIDDARR_TIDDL_BIN")
+    else [sys.executable, "-m", "tiddarr.tiddl_stereo"]
+)
 
 AUDIO_EXTENSIONS = {".flac", ".m4a", ".mp3", ".mp4", ".ogg", ".opus", ".wav", ".aac", ".alac"}
 

@@ -99,6 +99,8 @@ MIGRATIONS = [
     ("tracks", "has_art", "INTEGER NOT NULL DEFAULT 0", None),
     ("albums", "art_done", "INTEGER NOT NULL DEFAULT 0", None),
     ("albums", "match_state", "TEXT", None),
+    # tracks Tidal actually serves in this country; can be fewer than num_tracks
+    ("albums", "available_tracks", "INTEGER", None),
     ("playlist_tracks", "track_id", "INTEGER", None),
     ("tracks", "play_count", "INTEGER NOT NULL DEFAULT 0", None),
     ("tracks", "last_played", "REAL", None),

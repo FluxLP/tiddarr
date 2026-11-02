@@ -1,15 +1,15 @@
-import hmac
 import os
 import logging
 import threading
 from pathlib import Path
 
 import requests
-from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, abort, g, jsonify, request, send_file, send_from_directory
 from flask import redirect as redirect_to
 
 from . import search as search_mod
-from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, plays, scheduler, services, subsonic, suggest
+from . import __version__, artwork, config, db, downloader, integrations, library, metadata, playlists, plays, scheduler, services, subsonic, suggest, users
+from .users import admin_required
 from .tidal import TidalError, image, tidal
 
 log = logging.getLogger(__name__)
@@ -21,16 +21,25 @@ app = Flask(__name__, static_folder=None)
 app.register_blueprint(subsonic.bp)
 
 
+# reachable without a login; the Subsonic API (/rest/) has its own credentials
+PUBLIC_PATHS = {"/login", "/api/session", "/api/session/setup"}
+
+
 @app.before_request
-def basic_auth():
-    if not config.USERNAME or request.path.startswith("/rest/"):
-        return None  # the Subsonic API has its own credentials
-    a = request.authorization
-    if a and hmac.compare_digest(a.username or "", config.USERNAME) and hmac.compare_digest(
-        a.password or "", config.PASSWORD
-    ):
+def require_login():
+    if request.path.startswith(("/rest/", "/static/")) or request.path in PUBLIC_PATHS:
         return None
-    return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="Tiddarr"'})
+    g.user = users.from_request()
+    if g.user:
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify(error="login_required", login_required=True), 401
+    return redirect_to("/login")
+
+
+@app.errorhandler(users.UserError)
+def user_error(e: users.UserError):
+    return jsonify(error=str(e)), 400
 
 
 @app.errorhandler(TidalError)
@@ -59,6 +68,11 @@ def bg(fn, *args):
 @app.get("/")
 def index():
     return send_from_directory(STATIC, "index.html")
+
+
+@app.get("/login")
+def login_page():
+    return send_from_directory(STATIC, "login.html")
 
 
 @app.get("/static/<path:name>")
@@ -96,11 +110,15 @@ def status():
 @app.get("/api/settings")
 def get_settings():
     s = db.all_settings()
+    if not g.user["is_admin"]:
+        for key in ("subsonic_password", "jellyfin_api_key"):
+            s.pop(key, None)
     s["music_dir_exists"] = Path(s["music_dir"]).is_dir()
     return jsonify(s)
 
 
 @app.put("/api/settings")
+@admin_required
 def put_settings():
     for key, value in body().items():
         if key in config.DEFAULT_SETTINGS:
@@ -109,6 +127,7 @@ def put_settings():
 
 
 @app.get("/api/fs")
+@admin_required
 def browse():
     """Directory listing for the folder picker in the settings."""
     path = Path(request.args.get("path") or "/").resolve()
@@ -140,11 +159,13 @@ def auth_status():
 
 
 @app.post("/api/auth/login")
+@admin_required
 def auth_login():
     return jsonify(tidal.start_login())
 
 
 @app.post("/api/auth/logout")
+@admin_required
 def auth_logout():
     tidal.logout()
     return jsonify(ok=True)
@@ -367,7 +388,7 @@ def update_artist(artist_id):
         if a["monitored"]:
             # releases of deselected types are no longer wanted, newly selected ones are
             for al in db.q("SELECT id, type, monitored FROM albums WHERE artist_id=? AND tidal_id IS NOT NULL AND hidden=0 "
-                           "AND track_files < COALESCE(num_tracks, 1)", (artist_id,)):
+                           "AND track_files < COALESCE(available_tracks, num_tracks, 1)", (artist_id,)):
                 want = library.album_wanted_type(al["type"], a)
                 if want != bool(al["monitored"]):
                     db.run("UPDATE albums SET monitored=? WHERE id=?", (1 if want else 0, al["id"]))
@@ -901,9 +922,90 @@ def delete_playlist(pl_id):
     return jsonify(ok=True)
 
 
+# ---------------------------------------------------------- users, login
+
+@app.get("/api/session")
+def session_info():
+    u = users.from_request()
+    return jsonify(user=users.public(u) if u else None, setup=users.count() == 0)
+
+
+@app.post("/api/session")
+def session_login():
+    b = body()
+    u = users.authenticate(b.get("username", ""), b.get("password", ""))
+    if not u:
+        return jsonify(error="wrong_login"), 401
+    return users.set_cookie(jsonify(user=users.public(u)), users.new_session(u["id"]))
+
+
+@app.post("/api/session/setup")
+def session_setup():
+    """First start without any account: create the first admin."""
+    if users.count():
+        return jsonify(error="setup_done"), 403
+    b = body()
+    u = users.create(b.get("username", ""), b.get("password", ""), admin=True)
+    return users.set_cookie(jsonify(user=u), users.new_session(u["id"]))
+
+
+@app.delete("/api/session")
+def session_logout():
+    users.end_session(request.cookies.get(users.COOKIE))
+    resp = jsonify(ok=True)
+    resp.delete_cookie(users.COOKIE)
+    return resp
+
+
+@app.put("/api/me")
+def update_me():
+    b = body()
+    if not users.check_password(g.user, b.get("current_password", "")):
+        return jsonify(error="wrong_password"), 403
+    u = users.update(g.user["id"], username=b.get("username"), password=b.get("password") or None,
+                     keep_session=request.cookies.get(users.COOKIE))
+    return jsonify(user=u)
+
+
+@app.get("/api/users")
+@admin_required
+def users_list():
+    return jsonify(users.all_users())
+
+
+@app.post("/api/users")
+@admin_required
+def users_create():
+    b = body()
+    return jsonify(users.create(b.get("username", ""), b.get("password", ""), admin=bool(b.get("is_admin"))))
+
+
+@app.put("/api/users/<int:user_id>")
+@admin_required
+def users_update(user_id):
+    b = body()
+    admin = b.get("is_admin")
+    if user_id == g.user["id"] and admin is False:
+        return jsonify(error="own_admin"), 400
+    u = users.update(user_id, username=b.get("username"), password=b.get("password") or None,
+                     admin=None if admin is None else bool(admin),
+                     keep_session=request.cookies.get(users.COOKIE) if user_id == g.user["id"] else None)
+    return jsonify(u)
+
+
+@app.delete("/api/users/<int:user_id>")
+@admin_required
+def users_delete(user_id):
+    if user_id == g.user["id"]:
+        return jsonify(error="own_account"), 400
+    users.delete(user_id)
+    return jsonify(ok=True)
+
+
 # ------------------------------------------------------------ integrations
 
 @app.post("/api/subsonic/password")
+@admin_required
 def subsonic_new_password():
     import secrets
 
@@ -920,6 +1022,7 @@ def integrations_list():
 
 
 @app.put("/api/integrations/<iid>")
+@admin_required
 def integration_configure(iid):
     i = integrations.INTEGRATIONS.get(iid) or abort(404)
     b = body()
@@ -934,6 +1037,7 @@ def integration_configure(iid):
 
 
 @app.patch("/api/integrations/<iid>")
+@admin_required
 def integration_toggle(iid):
     i = integrations.INTEGRATIONS.get(iid) or abort(404)
     cfg = i.cfg()
@@ -943,6 +1047,7 @@ def integration_toggle(iid):
 
 
 @app.delete("/api/integrations/<iid>")
+@admin_required
 def integration_remove(iid):
     (integrations.INTEGRATIONS.get(iid) or abort(404)).remove()
     return jsonify(ok=True)
@@ -1079,6 +1184,7 @@ def queue_clear():
 
 def create_app():
     db.init()
+    users.init()
     subsonic.ensure_credentials()
     playlists.resume_unfinished()
     downloader.start()

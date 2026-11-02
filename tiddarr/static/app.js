@@ -102,6 +102,12 @@ const STRINGS = {
     yt_missing: "Needs the Python package ytmusicapi on the server.", apple_help: "Paste shared playlist links on the Playlists page.", amazon_help: "No public API – export your playlists as CSV (e.g. with TuneMyMusic) and import them on the Playlists page.",
     write_m3u: "Write .m3u8 playlist file", sync_now: "Sync now", delete: "Delete", delete_artist: "Delete artist", delete_album: "Delete album", delete_track: "Delete song",
     delete_keep_files: "Remove from Tiddarr only (files stay on disk)", delete_files: "Also delete the files from disk", delete_confirm: "Delete", deleted: "Deleted", freed: "freed",
+    tab_user: "My account", users: "Users", username: "Username", password: "Password", new_password: "New password", current_password: "Current password",
+    password_repeat: "Repeat new password", password_mismatch: "The new passwords don't match.", password_too_short: "The password needs at least 6 characters.",
+    invalid_username: "Please enter a username.", username_taken: "This username is already taken.", wrong_password: "The current password is wrong.",
+    last_admin: "At least one admin account has to stay.", own_admin: "You can't remove your own admin rights.", own_account: "You can't delete your own account.", admin_only: "Only admins can do this.",
+    admin: "Admin", add_user: "Add user", user_created: "User created", reset_password: "Set password", delete_user_confirm: "Delete this user?", my_account_help: "Changing the password logs you out on all other devices.",
+    logout_app: "Log out", logged_in_user: "Logged in as", leave_empty: "leave empty to keep it", admins_only_settings: "Only admins can change these settings.",
     delete_warn: "Deleted files cannot be restored.", ctx_open: "Open", browse: "Browse…", choose_folder: "Choose folder", use_folder: "Use this folder", not_writable: "not writable", up: "Up", reload_cover: "Reload cover",
   },
   de: {
@@ -203,6 +209,12 @@ const STRINGS = {
     yt_missing: "Benötigt das Python-Paket ytmusicapi auf dem Server.", apple_help: "Geteilte Playlist-Links auf der Playlists-Seite einfügen.", amazon_help: "Keine öffentliche API – Playlists als CSV exportieren (z. B. mit TuneMyMusic) und auf der Playlists-Seite importieren.",
     write_m3u: ".m3u8-Playlistdatei schreiben", sync_now: "Jetzt synchronisieren", delete: "Löschen", delete_artist: "Interpret löschen", delete_album: "Album löschen", delete_track: "Song löschen",
     delete_keep_files: "Nur aus Tiddarr entfernen (Dateien bleiben)", delete_files: "Auch die Dateien von der Platte löschen", delete_confirm: "Löschen", deleted: "Gelöscht", freed: "frei geworden",
+    tab_user: "Mein Konto", users: "Benutzer", username: "Benutzername", password: "Passwort", new_password: "Neues Passwort", current_password: "Aktuelles Passwort",
+    password_repeat: "Neues Passwort wiederholen", password_mismatch: "Die neuen Passwörter stimmen nicht überein.", password_too_short: "Das Passwort braucht mindestens 6 Zeichen.",
+    invalid_username: "Bitte einen Benutzernamen eingeben.", username_taken: "Dieser Benutzername ist schon vergeben.", wrong_password: "Das aktuelle Passwort ist falsch.",
+    last_admin: "Mindestens ein Admin-Konto muss bleiben.", own_admin: "Du kannst dir die Admin-Rechte nicht selbst nehmen.", own_account: "Du kannst dein eigenes Konto nicht löschen.", admin_only: "Das dürfen nur Admins.",
+    admin: "Admin", add_user: "Benutzer anlegen", user_created: "Benutzer angelegt", reset_password: "Passwort setzen", delete_user_confirm: "Diesen Benutzer löschen?", my_account_help: "Nach einer Passwortänderung wirst du auf allen anderen Geräten abgemeldet.",
+    logout_app: "Abmelden", logged_in_user: "Angemeldet als", leave_empty: "leer lassen, um es zu behalten", admins_only_settings: "Diese Einstellungen können nur Admins ändern.",
     delete_warn: "Gelöschte Dateien können nicht wiederhergestellt werden.", ctx_open: "Öffnen", browse: "Durchsuchen…", choose_folder: "Ordner wählen", use_folder: "Diesen Ordner verwenden", not_writable: "nicht beschreibbar", up: "Nach oben", reload_cover: "Cover neu laden",
   },
 };
@@ -244,7 +256,8 @@ async function api(path, opts = {}) {
   });
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }
-  if (!res.ok) throw new Error((data && data.error) || res.statusText);
+  if (res.status === 401 && data && data.login_required) { location.href = "/login"; throw new Error(t("login_required")); }
+  if (!res.ok) throw new Error((data && data.error && t(data.error)) || res.statusText);
   return data;
 }
 const post = (p, body = {}) => api(p, { method: "POST", body });
@@ -275,7 +288,7 @@ function albumStatus(al) {
   const q = al.queue_status;
   if (q === "downloading") return `<span class="badge info">${t("downloading")}</span>`;
   if (q === "queued") return `<span class="badge info">${t("queued")}</span>`;
-  const need = al.num_tracks || 0;
+  const need = al.available_tracks || al.num_tracks || 0;  // available: what Tidal serves here
   if (al.track_files > 0 && (!need || al.track_files >= need)) return `<span class="badge ok">${t("on_disk")}</span>`;
   if (al.track_files > 0) return `<span class="badge warn">${t("partial")} ${al.track_files}/${need}</span>`;
   if (al.release_date && al.release_date > new Date().toISOString().slice(0, 10)) return `<span class="badge">${t("not_released")}</span>`;
@@ -290,7 +303,7 @@ function jobBadge(s) {
 
 // ------------------------------------------------------------------- state
 
-const state = { status: null, artists: null, filter: localStorage.getItem("artistFilter") || "all", sort: localStorage.getItem("artistSort") || "name", libQuery: "" };
+const state = { me: null, status: null, artists: null, filter: localStorage.getItem("artistFilter") || "all", sort: localStorage.getItem("artistSort") || "name", libQuery: "" };
 
 async function refreshStatus() {
   try {
@@ -300,7 +313,7 @@ async function refreshStatus() {
     $("#queueCount").textContent = s.paused ? `‖ ${s.counts.queue || 0}` : (s.counts.queue || "");
     $("#queueCount").title = s.paused ? t("paused_banner") : "";
     $("#wantedCount").textContent = s.missing || "";
-    $("#sidebarFoot").innerHTML = `${s.counts.artists} ${esc(t("artists"))} · ${s.counts.albums} ${esc(t("albums"))}<br>${s.counts.tracks} ${esc(t("songs"))} · ${bytes(s.counts.size)}<br>v${esc(s.version)}${s.scan.running ? `<br><span class="spinner"></span> ${esc(t("scan_library"))}` : ""}`;
+    $("#sidebarFoot").innerHTML = `${s.counts.artists} ${esc(t("artists"))} · ${s.counts.albums} ${esc(t("albums"))}<br>${s.counts.tracks} ${esc(t("songs"))} · ${bytes(s.counts.size)}<br>v${esc(s.version)}${state.me ? `<br><a href="#/settings/user">${esc(state.me.username)}</a> · <a href="#" data-logout>${esc(t("logout_app"))}</a>` : ""}${s.scan.running ? `<br><span class="spinner"></span> ${esc(t("scan_library"))}` : ""}`;
   } catch { /* offline */ }
 }
 setInterval(refreshStatus, 5000);
@@ -437,7 +450,7 @@ async function viewArtists(_, alive) {
 
 function albumCard(al, opts = {}) {
   const status = albumStatus(al);
-  const canDl = al.tidal_id && (al.track_files || 0) < (al.num_tracks || 1) && !["queued", "downloading"].includes(al.queue_status);
+  const canDl = al.tidal_id && (al.track_files || 0) < (al.available_tracks || al.num_tracks || 1) && !["queued", "downloading"].includes(al.queue_status);
   return `<div class="card" data-album="${al.id}" data-ctx="album:${al.id}" data-label="${esc(al.full_title)}" ${al.tidal_id ? 'data-tidal="1"' : ""}>
     <a href="#/album/${al.id}"><div class="img" ${bg(al.cover_url)}></div></a>
     <div class="body"><a class="title" href="#/album/${al.id}" title="${esc(al.full_title)}">${esc(al.full_title)}</a>
@@ -1596,15 +1609,21 @@ function folderDialog(start, onPick) {
 
 // ---------------------------------------------------------------- settings
 
-const SETTINGS_TABS = [["accounts", "tab_accounts"], ["library", "library"], ["integrations", "tab_integrations"], ["tasks", "tasks"]];
+const SETTINGS_TABS = [["user", "tab_user"], ["accounts", "tab_accounts"], ["library", "library"], ["integrations", "tab_integrations"], ["tasks", "tasks"]];
+const ADMIN_TABS = ["library", "integrations", "tasks"];
 
 async function viewSettings(tab, alive) {
-  if (!SETTINGS_TABS.some(([id]) => id === tab)) tab = "accounts";
+  const tabs = SETTINGS_TABS.filter(([id]) => state.me.is_admin || !ADMIN_TABS.includes(id));
+  if (!tabs.some(([id]) => id === tab)) tab = "user";
   const [s, acc] = await Promise.all([api("/settings"), api("/auth")]);
   if (!alive()) return;
   const types = s.album_types.split(",");
   main.innerHTML = `<div class="toolbar"><h1>${esc(t("nav_settings"))}</h1></div>
-    <div class="tabs">${SETTINGS_TABS.map(([id, k]) => `<a href="#/settings/${id}" class="${id === tab ? "on" : ""}">${esc(t(k))}</a>`).join("")}</div>
+    <div class="tabs">${tabs.map(([id, k]) => `<a href="#/settings/${id}" class="${id === tab ? "on" : ""}">${esc(t(k))}</a>`).join("")}</div>
+    <div data-tab="user" ${tab === "user" ? "" : "hidden"}>
+    <div class="panel"><h3>${esc(t("tab_user"))}</h3><div id="myAccount"></div></div>
+    ${state.me.is_admin ? `<div class="panel"><h3>${esc(t("users"))}</h3><div id="users"><span class="spinner"></span></div></div>` : ""}
+    </div>
     <div data-tab="accounts" ${tab === "accounts" ? "" : "hidden"}>
     <div class="panel"><h3>${esc(t("tidal_account"))}</h3><div id="account"></div></div>
     <div class="panel" id="servicesPanel"><h3>${esc(t("services"))}</h3><div id="services"><span class="spinner"></span></div></div>
@@ -1652,8 +1671,10 @@ async function viewSettings(tab, alive) {
     }), t("saved"));
   };
 
+  renderMyAccount();
+  renderUsers();
   renderServices();
-  renderIntegrations();
+  if (state.me.is_admin) renderIntegrations();
   // live preview of the accent color, saved with the form (or right away for swatches/reset)
   const setAccent = async (c, save) => { $("#accentPick").value = c; applyAccent(c); if (save) await act(() => put("/settings", { accent_color: c }), t("saved")); };
   $("#accentPick").addEventListener("input", (e) => applyAccent(e.target.value));
@@ -1676,12 +1697,14 @@ async function viewSettings(tab, alive) {
         <span>${esc(t("subscription"))}: <b>${esc(acc.subscription || "?")}</b></span><span>${esc(t("country"))}: <b>${esc(acc.country)}</b></span></div>
         ${acc.can_download === false ? `<div class="banner err">${esc(t("free_warning"))}</div>` : ""}
         ${acc.error ? `<div class="banner err">${esc(acc.error)}</div>` : ""}
-        <button class="btn danger" id="logout">${esc(t("logout"))}</button>`;
-      $("#logout").onclick = async () => { await act(() => post("/auth/logout")); refreshStatus(); route(); };
+        ${state.me.is_admin ? `<button class="btn danger" id="logout">${esc(t("logout"))}</button>` : ""}`;
+      if ($("#logout")) $("#logout").onclick = async () => { await act(() => post("/auth/logout")); refreshStatus(); route(); };
     } else if (login.state === "pending") {
       box.innerHTML = `<div class="login-box"><span>${esc(t("login_step"))}</span>
         <a class="btn primary" href="${esc(login.url)}" target="_blank" rel="noopener">${esc(login.url)} ↗</a>
         <div class="code">${esc(login.code)}</div><span class="muted"><span class="spinner"></span> ${esc(t("login_waiting"))}</span></div>`;
+    } else if (!state.me.is_admin) {
+      box.innerHTML = `<span class="muted">${esc(t("admins_only_settings"))}</span>`;
     } else {
       box.innerHTML = `${login.state === "expired" || login.state === "error" ? `<div class="banner err">${esc(t("login_expired"))}</div>` : ""}
         <button class="btn primary" id="login">${esc(t("login"))}</button>`;
@@ -1720,8 +1743,84 @@ async function viewSettings(tab, alive) {
   }, 3000);
 }
 
+// -------------------------------------------------------------------- users
+
+async function logoutApp() {
+  try { await del("/session"); } catch { /* gone anyway */ }
+  location.href = "/login";
+}
+$("#sidebarFoot").addEventListener("click", (e) => { if (e.target.closest("[data-logout]")) { e.preventDefault(); logoutApp(); } });
+
+async function renderMyAccount() {
+  const box = $("#myAccount");
+  if (!box) return;
+  const me = state.me;
+  box.innerHTML = `<form id="meForm">
+    <div class="form-row"><label>${esc(t("username"))}</label><input type="text" name="username" value="${esc(me.username)}" autocomplete="username" autocapitalize="off" required></div>
+    <div class="form-row"><label>${esc(t("new_password"))}</label><input type="password" name="password" autocomplete="new-password" placeholder="${esc(t("leave_empty"))}"></div>
+    <div class="form-row"><label>${esc(t("password_repeat"))}</label><input type="password" name="password2" autocomplete="new-password"></div>
+    <div class="form-row"><label>${esc(t("current_password"))}</label><input type="password" name="current_password" autocomplete="current-password" required></div>
+    <div class="form-row"><label></label><div class="help" style="margin:0">${esc(t("my_account_help"))}</div></div>
+    <div class="toolbar" style="margin:12px 0 0"><button class="btn primary">${esc(t("save"))}</button><span class="spacer"></span><button type="button" class="btn danger" data-logout-btn>${esc(t("logout_app"))}</button></div></form>`;
+  $("[data-logout-btn]", box).onclick = logoutApp;
+  $("#meForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if (f.get("password") !== f.get("password2")) return toast(t("password_mismatch"), true);
+    const r = await act(() => put("/me", { username: f.get("username"), password: f.get("password"), current_password: f.get("current_password") }), t("saved"));
+    state.me = r.user;
+    refreshStatus();
+    renderMyAccount();
+    renderUsers();
+  };
+}
+
+async function renderUsers() {
+  const box = $("#users");
+  if (!box || !state.me.is_admin) return;
+  const list = await api("/users");
+  box.innerHTML = `<table class="list"><tr><th>${esc(t("username"))}</th><th>${esc(t("admin"))}</th><th></th></tr>
+    ${list.map((u) => `<tr><td>${esc(u.username)}</td>
+      <td><input type="checkbox" data-admin="${u.id}" ${u.is_admin ? "checked" : ""} ${u.id === state.me.id ? "disabled" : ""}></td>
+      <td class="row-actions"><button class="btn small" data-pw="${u.id}" data-name="${esc(u.username)}">${esc(t("reset_password"))}</button>
+        ${u.id === state.me.id ? "" : `<button class="btn small danger" data-del="${u.id}" data-name="${esc(u.username)}">${esc(t("delete"))}</button>`}</td></tr>`).join("")}</table>
+    <form class="toolbar" id="addUser" style="margin:12px 0 0">
+      <input type="text" name="username" placeholder="${esc(t("username"))}" autocomplete="off" autocapitalize="off" required>
+      <input type="password" name="password" placeholder="${esc(t("password"))}" autocomplete="new-password" required>
+      <label class="muted"><input type="checkbox" name="is_admin"> ${esc(t("admin"))}</label>
+      <button class="btn primary">${esc(t("add_user"))}</button></form>`;
+  $("#addUser").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    await act(() => post("/users", { username: f.get("username"), password: f.get("password"), is_admin: !!f.get("is_admin") }), t("user_created"));
+    renderUsers();
+  };
+  box.querySelectorAll("[data-admin]").forEach((c) => (c.onchange = async () => {
+    try { await act(() => put(`/users/${c.dataset.admin}`, { is_admin: c.checked }), t("saved")); } catch { /* shown */ }
+    renderUsers();
+  }));
+  box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`${t("delete_user_confirm")}\n${b.dataset.name}`)) return;
+    await act(() => del(`/users/${b.dataset.del}`), t("deleted"));
+    renderUsers();
+  }));
+  box.querySelectorAll("[data-pw]").forEach((b) => (b.onclick = () => {
+    const m = modal(`<h3>${esc(t("reset_password"))}: ${esc(b.dataset.name)}</h3><form id="pwForm">
+      <div class="form-row"><label>${esc(t("new_password"))}</label><input type="password" name="password" autocomplete="new-password" required></div>
+      <div class="form-row"><label>${esc(t("password_repeat"))}</label><input type="password" name="password2" autocomplete="new-password" required></div>
+      <div class="toolbar" style="margin:12px 0 0"><button class="btn primary">${esc(t("save"))}</button><button type="button" class="btn" data-close>${esc(t("cancel"))}</button></div></form>`);
+    $("#pwForm", m).onsubmit = async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      if (f.get("password") !== f.get("password2")) return toast(t("password_mismatch"), true);
+      await act(() => put(`/users/${b.dataset.pw}`, { password: f.get("password") }), t("saved"));
+      closeModal();
+    };
+  }));
+}
+
 // -------------------------------------------------------------------- boot
 
 document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
 document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => (el.placeholder = t(el.dataset.i18nPlaceholder)));
-refreshStatus().then(route);
+api("/session").then((s) => { state.me = s.user; return refreshStatus(); }).then(route);

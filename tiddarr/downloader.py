@@ -8,7 +8,7 @@ import threading
 import time
 
 from . import artwork, db, library
-from .config import TIDDL_BIN
+from .config import TIDDL_CMD
 from .tidal import TidalError, tidal
 
 log = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def clear(unmonitor: bool = True) -> int:
         ids = [j["album_id"] for j in jobs if j["kind"] == "album" and j["album_id"]]
         for i in range(0, len(ids), 500):
             chunk = ids[i:i + 500]
-            db.run(f"UPDATE albums SET monitored=0 WHERE id IN ({','.join('?' * len(chunk))}) AND track_files < COALESCE(num_tracks, 1)", chunk)
+            db.run(f"UPDATE albums SET monitored=0 WHERE id IN ({','.join('?' * len(chunk))}) AND track_files < COALESCE(available_tracks, num_tracks, 1)", chunk)
     track_ids = [j["tidal_id"] for j in jobs if j["kind"] == "track"]
     for i in range(0, len(track_ids), 500):
         chunk = track_ids[i:i + 500]
@@ -127,6 +127,23 @@ def _fail(job_id: int, message: str):
     )
 
 
+def _settle_duplicate_release(album: dict, lines: list[str], expected: int):
+    """Stop monitoring a single/EP whose tracks all exist already.
+
+    A single often shares its title with the album it comes from, so both map
+    to the same folder. tiddl then reports every track as "Exists", the files
+    count for the album, and the single would stay missing and be queued again
+    every hour.
+    """
+    if (album.get("type") or "").upper() not in ("SINGLE", "EP"):
+        return
+    exists = sum(1 for l in lines if l.lstrip().startswith("Exists "))
+    row = db.one("SELECT track_files FROM albums WHERE id=?", (album["id"],))
+    if exists >= expected and row and row["track_files"] < expected:
+        db.run("UPDATE albums SET monitored=0 WHERE id=?", (album["id"],))
+        log.info("album %s: all tracks already in the library, no longer monitored", album["id"])
+
+
 def _run(job: dict):
     album = db.one("SELECT * FROM albums WHERE id=?", (job["album_id"],))
     artist = db.one("SELECT * FROM artists WHERE id=?", (album["artist_id"],)) if album else None
@@ -147,6 +164,10 @@ def _run(job: dict):
             if not tracks:
                 return _fail(job["id"], "Album has no downloadable tracks")
             first_track = tracks[0]["id"]
+            # Tidal lists tracks that are not available here in numberOfTracks
+            # but leaves them out of the track list.
+            album["available_tracks"] = len(tracks)
+            db.run("UPDATE albums SET available_tracks=? WHERE id=?", (len(tracks), album["id"]))
         tidal.check_stream(first_track, quality)
     except TidalError as e:
         if e.sub_status == 5003 or e.status in (401, 403):
@@ -158,7 +179,7 @@ def _run(job: dict):
     template = library.output_template(artist, album)
     url = f"https://tidal.com/{'track' if job['kind'] == 'track' else 'album'}/{job['tidal_id']}"
     cmd = [
-        TIDDL_BIN, "download",
+        *TIDDL_CMD, "download",
         "--path", str(root), "--scan-path", str(root),
         "--track-quality", quality,
         "--threads-count", db.get_setting("threads") or "4",
@@ -166,7 +187,7 @@ def _run(job: dict):
         "url", url,
     ]
     target = root / library.album_dir(artist, album)
-    expected = 1 if job["kind"] == "track" else (album["num_tracks"] or 1)
+    expected = 1 if job["kind"] == "track" else (album.get("available_tracks") or album["num_tracks"] or 1)
     before = _count_files(target) if job["kind"] == "track" else 0
 
     db.run(
@@ -226,6 +247,8 @@ def _run(job: dict):
         )
     _current.update(job=None, proc=None, cancel=False, requeue=False)
     library.scan(artist["folder"])
+    if job["kind"] == "album" and proc.returncode == 0:
+        _settle_duplicate_release(album, lines, expected)
     if album["id"]:
         artwork.apply_album_art(album["id"])
         artwork.apply_artist_art(artist["id"])

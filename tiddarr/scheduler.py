@@ -36,7 +36,7 @@ def refresh_monitored(artist_ids: list[int] | None = None):
 def missing_albums() -> list[dict]:
     return db.q(
         "SELECT al.*, ar.name AS artist_name FROM albums al JOIN artists ar ON ar.id=al.artist_id "
-        "WHERE al.monitored=1 AND al.tidal_id IS NOT NULL AND al.track_files < COALESCE(al.num_tracks, 1) "
+        "WHERE al.monitored=1 AND al.tidal_id IS NOT NULL AND al.track_files < COALESCE(al.available_tracks, al.num_tracks, 1) "
         "AND (al.release_date IS NULL OR al.release_date <= date('now')) "
         "ORDER BY al.release_date DESC"
     )

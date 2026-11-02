@@ -111,9 +111,9 @@ changed in the web UI. Environment variables:
 | `TIDDARR_MUSIC_DIR` | `/music` | Initial music folder (changeable in UI) |
 | `TIDDARR_PORT` | `8688` | HTTP port |
 | `TIDDARR_HOST` | `0.0.0.0` | Bind address |
-| `TIDDARR_USERNAME` / `TIDDARR_PASSWORD` | – | Enable HTTP basic auth |
+| `TIDDARR_USERNAME` / `TIDDARR_PASSWORD` | – | First admin account, created on start if no account exists (otherwise the login page asks for one). Accounts are managed in Settings → My account |
 | `TIDDL_PATH` | `$TIDDARR_DATA_DIR/tiddl` | tiddl config/auth dir; point to `~/.tiddl` to share the login with the tiddl CLI |
-| `TIDDARR_TIDDL_BIN` | `tiddl` | tiddl executable |
+| `TIDDARR_TIDDL_BIN` | built-in wrapper | tiddl command; the default wrapper requests stereo instead of Dolby Atmos |
 | `TIDDARR_UMASK` | `000` | umask for downloaded files/folders (`000` = everyone may modify, like most shared libraries) |
 
 ## How it works
