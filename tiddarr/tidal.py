@@ -225,6 +225,42 @@ class Tidal:
     def track(self, track_id: int) -> dict:
         return self.get(f"tracks/{track_id}", ttl=3600)
 
+    # ------------------------------------------------- recommendations/radio
+
+    def tracks_by_isrc(self, isrc: str) -> list[dict]:
+        """All Tidal tracks sharing an ISRC (used to resolve a local track)."""
+        try:
+            return self.get("tracks", {"isrc": isrc}, ttl=86400).get("items", [])
+        except TidalError:
+            return []
+
+    def track_radio(self, track_id: int, limit: int = 100) -> list[dict]:
+        """Tidal's 'track radio' – similar tracks seeded from one track."""
+        try:
+            return self.get(f"tracks/{track_id}/radio", {"limit": limit}, ttl=3600).get("items", [])
+        except TidalError as e:
+            log.warning("track radio %s: %s", track_id, e)
+            return []
+
+    def artist_radio(self, artist_id: int, limit: int = 100) -> list[dict]:
+        try:
+            return self.get(f"artists/{artist_id}/radio", {"limit": limit}, ttl=3600).get("items", [])
+        except TidalError as e:
+            log.warning("artist radio %s: %s", artist_id, e)
+            return []
+
+    def artist_top_tracks(self, artist_id: int, limit: int = 50) -> list[dict]:
+        try:
+            return self.get(f"artists/{artist_id}/toptracks", {"limit": limit}, ttl=3600).get("items", [])
+        except TidalError:
+            return []
+
+    def similar_artists(self, artist_id: int, limit: int = 40) -> list[dict]:
+        try:
+            return self.get(f"artists/{artist_id}/similar", {"limit": limit}, ttl=86400).get("items", [])
+        except TidalError:
+            return []
+
     def check_stream(self, track_id: int, quality: str):
         """Raise TidalError if the account may not stream this track at all."""
         a = self.auth()

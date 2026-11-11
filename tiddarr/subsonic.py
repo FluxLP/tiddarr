@@ -20,7 +20,7 @@ from pathlib import Path
 from flask import Blueprint, Response, redirect, request, send_file
 
 from . import __version__, artwork, db, library, playlists
-from .tidal import image
+from .tidal import TidalError, image, tidal
 
 API_VERSION = "1.16.1"
 log = logging.getLogger(__name__)
@@ -421,7 +421,22 @@ def artist_info2():
         raise Error(70, "Not found")
     img = image(a.get("picture"), 750)
     return respond({"artistInfo2": {"biography": "", "smallImageUrl": image(a.get("picture"), 160),
-                                    "mediumImageUrl": image(a.get("picture"), 320), "largeImageUrl": img}})
+                                    "mediumImageUrl": image(a.get("picture"), 320), "largeImageUrl": img,
+                                    "similarArtist": _similar_artists(a.get("tidal_id"))}})
+
+
+def _similar_artists(tidal_id, limit: int = 20) -> list[dict]:
+    """Tidal's similar artists, limited to those we own (so they're playable)."""
+    if not tidal_id:
+        return []
+    out = []
+    for s in tidal.similar_artists(tidal_id):
+        row = db.one(ARTIST_SQL + " AND ar.tidal_id=?", (s.get("id"),))
+        if row:
+            out.append(artist(row))
+        if len(out) >= limit:
+            break
+    return out
 
 
 @_endpoint("getArtistInfo")
@@ -446,12 +461,99 @@ def album_info():
     return album_info2()
 
 
+# --------------------------------------------- recommendations (radio mode)
+# A download library has no own similarity data, so Music Assistant's radio
+# mode ("Don't stop the music") would otherwise get nothing. We borrow Tidal's
+# own recommendations and return only the tracks we actually own (playable).
+
+def _tidal_seed_track(row: dict) -> int | None:
+    """Resolve a local track row to a Tidal track id (via ISRC, else search)."""
+    if row.get("isrc"):
+        hits = tidal.tracks_by_isrc(row["isrc"])
+        if hits:
+            return hits[0]["id"]
+    query = " ".join(x for x in (row.get("artist") or row.get("artist_name"), row.get("title")) if x)
+    if query:
+        try:
+            items = (tidal.search(query, limit=5).get("tracks") or {}).get("items") or []
+            if items:
+                return items[0]["id"]
+        except TidalError:
+            pass
+    return None
+
+
+def _owned_songs(tidal_tracks: list[dict], exclude_ids, count: int) -> list[dict]:
+    """Map a list of Tidal track dicts to owned library songs, keeping order."""
+    isrcs = [t.get("isrc") for t in tidal_tracks if t.get("isrc")]
+    owned: dict[str, dict] = {}
+    for i in range(0, len(isrcs), 400):
+        chunk = isrcs[i:i + 400]
+        ph = ",".join("?" * len(chunk))
+        for r in db.q(TRACK_SQL + f" WHERE t.isrc IN ({ph})", chunk):
+            owned.setdefault(r["isrc"], r)
+    out, seen = [], set(exclude_ids)
+    for t in tidal_tracks:
+        r = owned.get(t.get("isrc"))
+        if not r or r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        out.append(song(r))
+        if len(out) >= count:
+            break
+    return out
+
+
+def _radio_for(raw: str) -> tuple[list[dict], tuple]:
+    """(Tidal track list, library-track-ids to exclude) for a tr-/al-/ar- id."""
+    if raw and raw.startswith("tr-"):
+        row = db.one(TRACK_SQL + " WHERE t.id=?", (_id("tr", raw),))
+        if not row:
+            return [], ()
+        seed = _tidal_seed_track(row)
+        return (tidal.track_radio(seed) if seed else []), (row["id"],)
+    if raw and raw.startswith("ar-"):
+        a = db.one("SELECT tidal_id FROM artists WHERE id=?", (_id("ar", raw),))
+        return (tidal.artist_radio(a["tidal_id"]) if a and a["tidal_id"] else []), ()
+    if raw and raw.startswith("al-"):
+        row = db.one(TRACK_SQL + " WHERE al.id=? ORDER BY t.disc_no, t.track_no LIMIT 1", (_id("al", raw),))
+        if row:
+            seed = _tidal_seed_track(row)
+            return (tidal.track_radio(seed) if seed else []), ()
+    return [], ()
+
+
+def _similar_response(key: str):
+    raw = _param("id", required=True)
+    count = _param("count", 50, cast=int)
+    tracks, exclude = _radio_for(raw)
+    return respond({key: {"song": _owned_songs(tracks, exclude, count) if tracks else []}})
+
+
+@_endpoint("getSimilarSongs2")
+def similar_songs2():
+    return _similar_response("similarSongs2")
+
+
+@_endpoint("getSimilarSongs")
+def similar_songs():
+    return _similar_response("similarSongs")
+
+
+@_endpoint("getTopSongs")
+def top_songs():
+    name = _param("artist", required=True)
+    count = _param("count", 50, cast=int)
+    a = db.one("SELECT tidal_id FROM artists WHERE name=? COLLATE NOCASE", (name,))
+    songs = _owned_songs(tidal.artist_top_tracks(a["tidal_id"]), (), count) if a and a["tidal_id"] else []
+    return respond({"topSongs": {"song": songs}})
+
+
 # empty but valid answers for features a download library doesn't have
 _EMPTY = {
     "getStarred2": {"starred2": {}}, "getStarred": {"starred": {}}, "getGenres": {"genres": {}},
     "getNowPlaying": {"nowPlaying": {}}, "getPodcasts": {"podcasts": {}}, "getNewestPodcasts": {"newestPodcasts": {}},
     "getInternetRadioStations": {"internetRadioStations": {}}, "getBookmarks": {"bookmarks": {}},
-    "getSimilarSongs2": {"similarSongs2": {}}, "getSimilarSongs": {"similarSongs": {}}, "getTopSongs": {"topSongs": {}},
     "getSongsByGenre": {"songsByGenre": {}}, "getShares": {"shares": {}}, "getChatMessages": {"chatMessages": {}},
     "getLyricsBySongId": {"lyricsList": {"structuredLyrics": []}},
 }
