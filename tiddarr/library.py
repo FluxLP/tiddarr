@@ -99,19 +99,55 @@ def _album_row(a: dict) -> dict:
     }
 
 
+_EDITION_ADJ = {
+    "deluxe", "expanded", "extended", "special", "anniversary", "collector",
+    "collectors", "platinum", "gold", "standard", "bonus", "track", "tracks",
+    "remaster", "remastered", "reissue", "explicit", "clean", "mono", "stereo",
+    "international", "original", "super",
+}
+_EDITION_FILLER = {"edition", "version", "the", "a", "box", "set"}
+
+
+def _is_edition(label: str | None) -> bool:
+    """True when a title/version qualifier only marks a reissue of the SAME songs
+    (Deluxe, Remastered 2011, Expanded Edition, International Version …), as opposed
+    to a genuinely different recording (Live, Acoustic, Remix, Taylor's Version,
+    Soundtrack). An empty qualifier counts as the plain base release."""
+    if not label:
+        return True
+    core = [w for w in re.findall(r"[a-z]+", re.sub(r"(19|20)\d\d", "", label.lower()))
+            if w not in _EDITION_FILLER]
+    return bool(core) and all(w in _EDITION_ADJ for w in core)
+
+
+def _base_title(title: str) -> str:
+    """Comparison key for a title with edition qualifiers stripped, so the standard
+    and the Deluxe/Remastered/Expanded release collapse onto one album."""
+    t = re.sub(r"\s*[\(\[]([^\)\]]*)[\)\]]",
+               lambda m: "" if _is_edition(m.group(1)) else m.group(0), title or "")
+    parts = re.split(r"\s[-–]\s", t)
+    if len(parts) > 1 and _is_edition(parts[-1]):
+        t = " ".join(parts[:-1])
+    return norm(t)
+
+
 def _dedupe(albums: list[dict]) -> tuple[list[dict], set[int]]:
-    """Tidal lists the same release several times (explicit/clean, stereo/hi-res,
-    regional variants). Keep the best one visible and hide the rest."""
+    """Tidal lists the same release several times – explicit/clean, stereo/hi-res,
+    regional variants, and separate Deluxe/Remastered/Expanded editions that carry
+    the same songs. Collapse all of those onto one album and keep the most complete
+    one (most tracks), so adding a whole artist doesn't pull five near-identical
+    copies. Genuinely different recordings (Live, Acoustic, Remix …) stay apart."""
     groups: dict[tuple, list[dict]] = {}
     for a in albums:
-        groups.setdefault((norm(full_title(a)), a["type"]), []).append(a)
+        ver = "" if _is_edition(a.get("version")) else norm(a.get("version"))
+        groups.setdefault((_base_title(a["title"]), ver, a["type"]), []).append(a)
     hidden = set()
     for group in groups.values():
         group.sort(
             key=lambda a: (
-                a["explicit"],
-                a["quality"] == "HI_RES",
                 a["num_tracks"] or 0,
+                a["quality"] == "HI_RES",
+                a["explicit"],
                 a["release_date"] or "",
             ),
             reverse=True,
