@@ -362,8 +362,18 @@ def _local(pl_id: int) -> dict:
     return pl
 
 
+def _editable(pl_id: int) -> dict:
+    """Playlists whose track list Tiddarr owns and may change: ones created
+    here ('local') and ones imported from a file ('file'). Imported playlists
+    are never re-fetched from a remote source, so added songs stick."""
+    pl = db.one("SELECT * FROM playlists WHERE id=?", (pl_id,))
+    if not pl or pl["service"] not in ("local", "file"):
+        raise ValueError("Only playlists created or imported in Tiddarr can be edited")
+    return pl
+
+
 def add_tracks(pl_id: int, track_ids: list[int]) -> int:
-    _local(pl_id)
+    _editable(pl_id)
     pos = (db.one("SELECT MAX(pos) AS m FROM playlist_tracks WHERE playlist_id=?", (pl_id,))["m"] or -1) + 1
     n = 0
     for tid in track_ids:
@@ -388,7 +398,7 @@ def add_tracks(pl_id: int, track_ids: list[int]) -> int:
 def add_tidal_tracks(pl_id: int, tidal_tracks: list[dict], download: bool = False) -> int:
     """Add songs from Tidal that may not be on disk yet. They show up in the
     playlist right away; players see them once they are downloaded."""
-    pl = _local(pl_id)
+    pl = _editable(pl_id)
     download = download or bool(pl["monitored"])  # "keep complete" means: download what gets added
     idx = library_index()
     pos = (db.one("SELECT MAX(pos) AS m FROM playlist_tracks WHERE playlist_id=?", (pl_id,))["m"] or -1) + 1
@@ -418,14 +428,14 @@ def add_tidal_tracks(pl_id: int, tidal_tracks: list[dict], download: bool = Fals
 
 
 def remove_entries(pl_id: int, entry_ids: list[int]):
-    _local(pl_id)
+    _editable(pl_id)
     for eid in entry_ids:
         db.run("DELETE FROM playlist_tracks WHERE id=? AND playlist_id=?", (eid, pl_id))
     reorder(pl_id, [r["id"] for r in db.q("SELECT id FROM playlist_tracks WHERE playlist_id=? ORDER BY pos", (pl_id,))])
 
 
 def reorder(pl_id: int, entry_ids: list[int]):
-    _local(pl_id)
+    _editable(pl_id)
     for pos, eid in enumerate(entry_ids):
         db.run("UPDATE playlist_tracks SET pos=? WHERE id=? AND playlist_id=?", (pos, eid, pl_id))
     db.run("UPDATE playlists SET last_sync=CURRENT_TIMESTAMP WHERE id=?", (pl_id,))

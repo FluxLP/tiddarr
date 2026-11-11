@@ -858,9 +858,11 @@ def create_playlist():
 
 @app.get("/api/playlists/local")
 def local_playlists():
+    # playlists songs can be added to: made in Tiddarr ('local') and imported
+    # from a file ('file'); both keep their track list across syncs
     return jsonify(db.q(
-        "SELECT p.id, p.name, (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id) AS count "
-        "FROM playlists p WHERE p.service='local' ORDER BY p.name COLLATE NOCASE"
+        "SELECT p.id, p.name, p.service, (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id) AS count "
+        "FROM playlists p WHERE p.service IN ('local','file') ORDER BY p.name COLLATE NOCASE"
     ))
 
 
