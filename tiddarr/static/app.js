@@ -36,6 +36,7 @@ const STRINGS = {
     threads: "Parallel track downloads", jellyfin: "Jellyfin (optional)", jellyfin_url: "Jellyfin URL", jellyfin_key: "API key",
     jellyfin_help: "Triggers a library scan after downloads finished. Create an API key in Jellyfin under Dashboard → API keys.",
     tasks: "Tasks", scan_library: "Scan music folder", scan_help: "Reads all files in the music folder into the library.",
+    sync_now: "Sync now", sync_help: "Rescans the music folder so files you added by hand (e.g. on your NAS) show up in Tiddarr.", sync_started: "Sync started",
     auto_match: "Link artists with Tidal", auto_match_help: "Matches artist folders to Tidal artists by name. Nothing is monitored or downloaded.",
     refresh_all: "Check monitored artists now", refresh_all_help: "Looks for new releases and queues missing albums.",
     run: "Run", running: "running", folder_missing: "Folder does not exist!",
@@ -89,7 +90,7 @@ const STRINGS = {
     clear_unmonitor: "Stop monitoring these albums too (otherwise the next release check queues them again)",
     save_playlist: "Save as playlist", refresh_pl: "Refresh", imported: "imported – looking them up on Tidal",
     monitor_pl: "Keep complete", monitor_pl_help: "Downloads missing and newly added songs automatically",
-    add_to_playlist: "Add to playlist", new_playlist: "New playlist", playlist_name: "Playlist name", create: "Create",
+    add_to_playlist: "Add to playlist", new_playlist: "New playlist", playlist_name: "Playlist name", create: "Create", pl_filter: "Search playlists…", no_pl_match: "No playlist matches",
     added_to: "Added to", selected: "selected", select_all: "Select all", move_up: "Move up", move_down: "Move down",
     remove_from_playlist: "Remove", rename: "Rename", own_playlist: "Your playlist – changes appear in Music Assistant and Jellyfin automatically.",
     sp_exportify: "No developer account needed: sign in at Exportify with your Spotify account, export your playlists and Liked Songs as CSV (\"Export All\" gives a ZIP – unpack it) and import the files here.",
@@ -143,6 +144,7 @@ const STRINGS = {
     threads: "Parallele Track-Downloads", jellyfin: "Jellyfin (optional)", jellyfin_url: "Jellyfin-URL", jellyfin_key: "API-Schlüssel",
     jellyfin_help: "Startet nach abgeschlossenen Downloads einen Bibliotheks-Scan. API-Schlüssel in Jellyfin unter Dashboard → API-Schlüssel erstellen.",
     tasks: "Aufgaben", scan_library: "Musikordner scannen", scan_help: "Liest alle Dateien im Musikordner in die Bibliothek ein.",
+    sync_now: "Synchronisieren", sync_help: "Scannt den Musikordner neu ein, damit händisch hinzugefügte Dateien (z. B. auf der NAS) in Tiddarr erscheinen.", sync_started: "Synchronisierung gestartet",
     auto_match: "Interpreten mit Tidal verknüpfen", auto_match_help: "Ordnet Interpreten-Ordner per Name Tidal-Interpreten zu. Es wird nichts überwacht oder geladen.",
     refresh_all: "Überwachte Interpreten jetzt prüfen", refresh_all_help: "Sucht neue Releases und reiht fehlende Alben ein.",
     run: "Starten", running: "läuft", folder_missing: "Ordner existiert nicht!",
@@ -196,7 +198,7 @@ const STRINGS = {
     clear_unmonitor: "Diese Alben auch nicht mehr überwachen (sonst reiht der nächste Release-Check sie wieder ein)",
     save_playlist: "Als Playlist speichern", refresh_pl: "Aktualisieren", imported: "importiert – werden auf Tidal gesucht",
     monitor_pl: "Vollständig halten", monitor_pl_help: "Lädt fehlende und neu hinzugefügte Songs automatisch herunter",
-    add_to_playlist: "Zur Playlist hinzufügen", new_playlist: "Neue Playlist", playlist_name: "Name der Playlist", create: "Anlegen",
+    add_to_playlist: "Zur Playlist hinzufügen", new_playlist: "Neue Playlist", playlist_name: "Name der Playlist", create: "Anlegen", pl_filter: "Playlist suchen…", no_pl_match: "Keine Playlist gefunden",
     added_to: "Hinzugefügt zu", selected: "ausgewählt", select_all: "Alle auswählen", move_up: "Nach oben", move_down: "Nach unten",
     remove_from_playlist: "Entfernen", rename: "Umbenennen", own_playlist: "Deine Playlist – Änderungen erscheinen automatisch in Music Assistant und Jellyfin.",
     sp_exportify: "Kein Developer-Account nötig: Bei Exportify mit deinem Spotify-Konto anmelden, Playlists und Lieblingssongs als CSV exportieren (\"Export All\" liefert eine ZIP-Datei – entpacken) und die Dateien hier importieren.",
@@ -1004,8 +1006,11 @@ function deleteDialog(kind, id, label, info, after) {
 async function addToPlaylistDialog(what, label) {
   const list = await api("/playlists/local");
   const fromTidal = !!(what.tidal_track_ids || what.tidal_album_id);
+  // show a search field above the list once there are enough playlists to scroll
+  const searchable = list.length > 6;
   const m = modal(`<h2>${esc(t("add_to_playlist"))}${label ? ": " + esc(label) : ""}</h2>
-    ${list.length ? `<div style="max-height:40vh;overflow:auto;margin-bottom:12px">${list.map((p) => `<button class="option" style="width:100%;text-align:left" data-pl="${p.id}"><div><b>${esc(p.name)}</b><small>${p.count} ${esc(t("songs"))}</small></div></button>`).join("")}</div>` : ""}
+    ${searchable ? `<input type="search" id="plSearch" placeholder="${esc(t("pl_filter"))}" autocomplete="off" style="width:100%;margin-bottom:8px">` : ""}
+    ${list.length ? `<div id="plList" style="max-height:40vh;overflow:auto;margin-bottom:12px">${list.map((p) => `<button class="option" style="width:100%;text-align:left" data-pl="${p.id}" data-name="${esc(p.name.toLowerCase())}"><div><b>${esc(p.name)}</b><small>${p.count} ${esc(t("songs"))}</small></div></button>`).join("")}<div id="plNone" class="muted" hidden style="padding:8px 4px">${esc(t("no_pl_match"))}</div></div>` : ""}
     <form class="toolbar" id="newPl" style="margin:0"><input type="text" id="newPlName" placeholder="${esc(t("playlist_name"))}" style="flex:1"><button class="btn primary">${esc(t("new_playlist"))}</button></form>
     ${fromTidal ? `<label class="checks" style="margin-top:12px"><label><input type="checkbox" id="plDl" checked> ${esc(t("pl_download_missing"))}</label></label>` : ""}
     <div class="foot"><button class="btn" data-close>${esc(t("cancel"))}</button></div>`);
@@ -1015,6 +1020,23 @@ async function addToPlaylistDialog(what, label) {
     closeModal();
   };
   m.querySelectorAll("[data-pl]").forEach((b) => (b.onclick = () => add(b.dataset.pl, list.find((p) => p.id === +b.dataset.pl).name)));
+  const search = $("#plSearch", m);
+  if (search) {
+    const btns = [...m.querySelectorAll("[data-pl]")], none = $("#plNone", m);
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      let shown = 0;
+      btns.forEach((b) => {
+        const hit = !q || b.dataset.name.includes(q);
+        b.hidden = !hit;
+        if (hit) shown++;
+      });
+      if (none) none.hidden = shown > 0;
+    };
+    search.focus();
+  } else {
+    $("#newPlName", m).focus();
+  }
   $("#newPl", m).onsubmit = async (e) => {
     e.preventDefault();
     const name = $("#newPlName", m).value.trim();
@@ -1022,7 +1044,6 @@ async function addToPlaylistDialog(what, label) {
     const r = await act(() => post("/playlists", { name }));
     await add(r.id, name);
   };
-  $("#newPlName", m).focus();
 }
 
 const ctxMenu = document.createElement("div");
@@ -1631,6 +1652,9 @@ async function viewSettings(tab, alive) {
     <form class="panel" id="settingsForm" data-tab="library" ${tab === "library" ? "" : "hidden"}><h3>${esc(t("library"))}</h3>
       <div class="form-row"><label>${esc(t("music_dir"))}</label><div class="toolbar" style="margin:0;flex-wrap:nowrap"><input type="text" name="music_dir" id="musicDir" value="${esc(s.music_dir)}" style="flex:1;min-width:0"><button type="button" class="btn" id="browseBtn">${esc(t("browse"))}</button></div>
         <div class="help">${esc(t("music_dir_help"))}${s.music_dir_exists ? "" : ` <b style="color:var(--err)">${esc(t("folder_missing"))}</b>`}</div></div>
+      <div class="form-row"><label>${esc(t("sync_now"))}</label><div class="toolbar" style="margin:0;flex-wrap:wrap">
+        <button type="button" class="btn" id="syncLibBtn">${esc(t("sync_now"))}</button>
+        <span class="muted small" id="syncLibInfo">${esc(t("sync_help"))}</span></div></div>
       <div class="form-row"><label>${esc(t("quality"))}</label><select name="quality">
         ${[["max", "Max – Hi-Res FLAC (24-bit)"], ["high", "High – FLAC 16-bit"], ["normal", "Normal – AAC 320"], ["low", "Low – AAC 96"]].map(([v, l]) => `<option value="${v}" ${s.quality === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <div class="form-row"><label>${esc(t("album_types"))}</label><div class="checks">${["ALBUM", "EP", "SINGLE"].map((ty) => `<label><input type="checkbox" name="type" value="${ty}" ${types.includes(ty) ? "checked" : ""}> ${esc(typeLabel(ty))}</label>`).join("")}</div></div>
@@ -1670,6 +1694,23 @@ async function viewSettings(tab, alive) {
       chart_countries: f.getAll("chart").join(","), chart_types: f.getAll("ctype").join(","), chart_size: f.get("chart_size"),
     }), t("saved"));
   };
+
+  const paintSync = (sc) => {
+    const btn = $("#syncLibBtn");
+    if (!btn) return;
+    const running = !!(sc && sc.running);
+    btn.disabled = running;
+    btn.innerHTML = running ? `<span class="spinner"></span> ${esc(t("running"))}` : esc(t("sync_now"));
+    const info = $("#syncLibInfo");
+    if (info) info.innerHTML = running ? `${sc.done}/${sc.total} · ${esc(sc.message || "")}` : esc(t("sync_help"));
+  };
+  if ($("#syncLibBtn")) {
+    $("#syncLibBtn").onclick = async () => {
+      await act(() => post("/tasks/scan"), t("sync_started"));
+      paintSync({ running: true, done: 0, total: 0, message: "" });
+      refreshStatus();
+    };
+  }
 
   renderMyAccount();
   renderUsers();
@@ -1733,10 +1774,12 @@ async function viewSettings(tab, alive) {
     setTimeout(async () => renderTasks(await api("/status")), 500);
   });
   renderTasks(await api("/status"));
+  paintSync((await api("/status")).scan);
 
   viewTimer = setInterval(async () => {
     const st = await api("/status");
     renderTasks(st);
+    paintSync(st.scan);
     const a = await api("/auth");
     if ((a.login || {}).state === "pending" || ((a.login || {}).state === "done" && !$("#logout"))) renderAccount(a);
     if ((a.login || {}).state === "done" && !$("#logout")) { toast(t("login_done")); refreshStatus(); }
