@@ -11,6 +11,7 @@ IDs: ar-<artist id>, al-<album id>, tr-<track id>, pl-<playlist id>
 import hashlib
 import hmac
 import logging
+import random
 import secrets
 import time
 import xml.etree.ElementTree as ET
@@ -523,11 +524,47 @@ def _radio_for(raw: str) -> tuple[list[dict], tuple]:
     return [], ()
 
 
+# Tidal's seed radio is content-based (same for everyone); it also runs dry
+# fast once filtered to owned tracks. To keep autoplay personal and flowing we
+# blend in the user's taste: owned songs from their personalised Tidal mixes
+# (My Mix 1-8 + artist stations). Cached and lightly shuffled so each autoplay
+# session varies instead of always ending on the same favourites.
+_taste: dict = {"at": 0.0, "songs": []}
+_TASTE_TTL = 1800
+
+
+def _taste_pool() -> list[dict]:
+    """Owned library songs drawn from the user's personalised Tidal mixes."""
+    now = time.time()
+    if _taste["songs"] and _taste["at"] > now - _TASTE_TTL:
+        pool = list(_taste["songs"])
+        random.shuffle(pool)
+        return pool
+    tracks: list[dict] = []
+    for mix_id in tidal.personal_mixes()[:12]:
+        tracks += tidal.mix_items(mix_id, 100)
+    pool = _owned_songs(tracks, (), 600)
+    _taste.update(at=now, songs=pool)
+    pool = list(pool)
+    random.shuffle(pool)
+    return pool
+
+
 def _similar_response(key: str):
     raw = _param("id", required=True)
     count = _param("count", 50, cast=int)
     tracks, exclude = _radio_for(raw)
-    return respond({key: {"song": _owned_songs(tracks, exclude, count) if tracks else []}})
+    songs = _owned_songs(tracks, exclude, count) if tracks else []
+    if len(songs) < count:  # seed radio ran dry -> extend with personal taste
+        have = {s["id"] for s in songs} | {raw}
+        for s in _taste_pool():
+            if s["id"] in have:
+                continue
+            songs.append(s)
+            have.add(s["id"])
+            if len(songs) >= count:
+                break
+    return respond({key: {"song": songs}})
 
 
 @_endpoint("getSimilarSongs2")

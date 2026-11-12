@@ -261,6 +261,34 @@ class Tidal:
         except TidalError:
             return []
 
+    def mix_items(self, mix_id: str, limit: int = 100) -> list[dict]:
+        """Tracks of a Tidal mix (unwrapped from the {item: ...} envelope)."""
+        try:
+            items = self.get(f"mixes/{mix_id}/items", {"limit": limit}, ttl=1800).get("items", [])
+            return [i.get("item", i) for i in items]
+        except TidalError as e:
+            log.warning("mix items %s: %s", mix_id, e)
+            return []
+
+    def personal_mixes(self) -> list[str]:
+        """IDs of the user's personalised, taste-based mixes (My Mix 1-8 and the
+        'radio stations for you' artist mixes). These reflect actual listening
+        behaviour, unlike a track's content-based radio. Discovery/new-release
+        mixes are skipped – they're full of tracks the library doesn't own."""
+        try:
+            page = self.get("pages/for_you", {"deviceType": "BROWSER"}, ttl=21600)
+        except TidalError as e:
+            log.warning("for_you page: %s", e)
+            return []
+        out: list[str] = []
+        for row in page.get("rows", []):
+            for mod in row.get("modules", []):
+                for it in (mod.get("pagedList") or {}).get("items", []):
+                    if (isinstance(it, dict) and it.get("id")
+                            and it.get("mixType") in ("DAILY_MIX", "ARTIST_MIX")):
+                        out.append(it["id"])
+        return out
+
     def check_stream(self, track_id: int, quality: str):
         """Raise TidalError if the account may not stream this track at all."""
         a = self.auth()
