@@ -13,6 +13,7 @@ import hmac
 import logging
 import random
 import secrets
+import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -505,23 +506,46 @@ def _owned_songs(tidal_tracks: list[dict], exclude_ids, count: int) -> list[dict
     return out
 
 
-def _radio_for(raw: str) -> tuple[list[dict], tuple]:
-    """(Tidal track list, library-track-ids to exclude) for a tr-/al-/ar- id."""
+def _genre_candidates(raw: str) -> tuple[list[dict], tuple]:
+    """Genre-coherent Tidal tracks for a tr-/al-/ar- id, most seed-specific
+    first, plus the library-track-ids to exclude.
+
+    Stacks the seed's own track radio and its artist radio. Both stay on the
+    seed's style (Tidal content-based similarity), so this is used BOTH as the
+    owned-songs source for the reply AND as the pool we grow the library from.
+    """
+    def _artist_radio(artist_id):
+        a = db.one("SELECT tidal_id FROM artists WHERE id=?", (artist_id,))
+        return tidal.artist_radio(a["tidal_id"]) if a and a["tidal_id"] else []
+
+    tracks: list[dict] = []
+    exclude: tuple = ()
     if raw and raw.startswith("tr-"):
         row = db.one(TRACK_SQL + " WHERE t.id=?", (_id("tr", raw),))
         if not row:
             return [], ()
+        exclude = (row["id"],)
         seed = _tidal_seed_track(row)
-        return (tidal.track_radio(seed) if seed else []), (row["id"],)
-    if raw and raw.startswith("ar-"):
-        a = db.one("SELECT tidal_id FROM artists WHERE id=?", (_id("ar", raw),))
-        return (tidal.artist_radio(a["tidal_id"]) if a and a["tidal_id"] else []), ()
-    if raw and raw.startswith("al-"):
+        if seed:
+            tracks += tidal.track_radio(seed)
+        tracks += _artist_radio(row["artist_id"])
+    elif raw and raw.startswith("ar-"):
+        tracks += _artist_radio(_id("ar", raw))
+    elif raw and raw.startswith("al-"):
         row = db.one(TRACK_SQL + " WHERE al.id=? ORDER BY t.disc_no, t.track_no LIMIT 1", (_id("al", raw),))
         if row:
             seed = _tidal_seed_track(row)
-            return (tidal.track_radio(seed) if seed else []), ()
-    return [], ()
+            if seed:
+                tracks += tidal.track_radio(seed)
+            tracks += _artist_radio(row["artist_id"])
+
+    seen, uniq = set(), []
+    for t in tracks:
+        tid = t.get("id")
+        if tid and tid not in seen:
+            seen.add(tid)
+            uniq.append(t)
+    return uniq, exclude
 
 
 # Tidal's seed radio is content-based (same for everyone); it also runs dry
@@ -550,13 +574,72 @@ def _taste_pool() -> list[dict]:
     return pool
 
 
+# Autoplay grows the library on-genre: when a radio is served we download, in
+# the background, the genre-similar Tidal tracks that are not owned yet. Over a
+# listening session the owned pool for that style keeps expanding, so the
+# continuation stays on-genre instead of being padded with unrelated taste
+# (which caused rock -> rap/techno jumps). Toggle with setting
+# `autoplay_autodownload` (default on), batch size `autoplay_autodownload_max`.
+_dl_lock = threading.Lock()
+_dl_recent: dict = {}
+_DL_RECENT_TTL = 6 * 3600
+
+
+def _autoplay_grow(candidates: list[dict]):
+    if db.get_setting("autoplay_autodownload") == "0" or not candidates:
+        return
+    try:
+        limit = int(db.get_setting("autoplay_autodownload_max") or 25)
+    except ValueError:
+        limit = 25
+    if limit <= 0 or not _dl_lock.acquire(blocking=False):
+        return  # disabled, or a batch is already running
+
+    def run():
+        from . import downloader
+        try:
+            pending = db.one("SELECT COUNT(*) AS n FROM queue WHERE status IN ('queued','downloading')")["n"]
+            if pending >= 60:
+                return  # queue busy, don't pile up
+            now, done = time.time(), 0
+            for t in candidates:
+                if done >= limit:
+                    break
+                tid = t.get("id")
+                if not tid or not (t.get("album") or {}).get("id"):
+                    continue
+                if _dl_recent.get(tid, 0) > now - _DL_RECENT_TTL:
+                    continue
+                if t.get("isrc") and db.one("SELECT 1 FROM tracks WHERE isrc=?", (t["isrc"],)):
+                    continue  # already owned
+                if db.one("SELECT 1 FROM queue WHERE tidal_id=? AND status IN ('queued','downloading')", (tid,)):
+                    continue
+                try:
+                    downloader.enqueue_track(t)
+                    _dl_recent[tid] = now
+                    done += 1
+                except Exception:
+                    log.debug("autoplay-grow: enqueue failed for %s", tid, exc_info=True)
+            if done:
+                log.info("autoplay-grow: queued %d genre-similar track(s)", done)
+        finally:
+            _dl_lock.release()
+
+    threading.Thread(target=run, daemon=True, name="autoplay-grow").start()
+
+
 def _similar_response(key: str):
     raw = _param("id", required=True)
     count = _param("count", 50, cast=int)
-    tracks, exclude = _radio_for(raw)
-    songs = _owned_songs(tracks, exclude, count) if tracks else []
-    if len(songs) < count:  # seed radio ran dry -> extend with personal taste
-        have = {s["id"] for s in songs} | {raw}
+    candidates, exclude = _genre_candidates(raw)
+    songs = _owned_songs(candidates, exclude, count) if candidates else []
+    # keep autoplay on-genre and flowing: grow the library with more of the
+    # same style for next time, instead of padding now with unrelated taste
+    _autoplay_grow(candidates)
+    if not songs:
+        # cold seed (e.g. a hand-uploaded track with no Tidal match): fall back
+        # to the user's taste so autoplay does not stall on an empty radio
+        have = {raw}
         for s in _taste_pool():
             if s["id"] in have:
                 continue
